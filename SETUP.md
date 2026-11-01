@@ -1,4 +1,4 @@
-# HireProof local setup
+# ClearHire local setup
 
 About 20 minutes. At the end you have the web app on http://localhost:5173, the API on port 3001, Postgres in Docker, and "Sign in with GitHub" working.
 
@@ -20,8 +20,8 @@ Never paste secrets (client secret, private key, `.env` contents) into a chat. T
 
 ```bash
 cd ~/Projects
-unzip ~/Downloads/hireproof.zip      # or wherever you saved it
-cd hireproof
+unzip ~/Downloads/clearhire.zip      # or wherever you saved it
+cd clearhire
 cp .env.example .env
 pnpm install
 pnpm gen:keys
@@ -36,7 +36,7 @@ pnpm gen:keys
 
    | Field | Value |
    |---|---|
-   | GitHub App name | Must be unique on GitHub, e.g. `hireproof-dev-<your-username>` |
+   | GitHub App name | Must be unique on GitHub, e.g. `clearhire-dev-<your-username>` |
    | Homepage URL | `http://localhost:5173` |
    | Callback URL | `http://localhost:5173/api/auth/github/callback` |
    | Expire user authorization tokens | ✅ checked |
@@ -79,7 +79,7 @@ pnpm dev
 
 Open http://localhost:5173. The status pills should read **API: ok**, **Database: ok**, **GitHub App: ok**.
 
-Click **Sign in with GitHub**, approve, and you land back on the page showing your avatar and verified emails. Then click **Install the HireProof GitHub App and choose repositories**, pick a repo, and you return signed in with "Installed (installation …)".
+Click **Sign in with GitHub**, approve, and you land back on the page showing your avatar and verified emails. Then click **Install the ClearHire GitHub App and choose repositories**, pick a repo, and you return signed in with "Installed (installation …)".
 
 ## Checks if something is off
 

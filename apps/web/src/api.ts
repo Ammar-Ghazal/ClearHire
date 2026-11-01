@@ -1,6 +1,6 @@
 // Thin client for the API. In development the base is /api (proxied by Vite);
 // in production set VITE_API_URL to the API's public URL.
-import { HealthSchema, MeSchema, type Health, type Me } from '@hireproof/shared';
+import { HealthSchema, MeSchema, type Health, type Me } from '@clearhire/shared';
 
 export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api';
 

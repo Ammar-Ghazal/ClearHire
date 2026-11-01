@@ -1,4 +1,4 @@
-import type { Health } from '@hireproof/shared';
+import type { Health } from '@clearhire/shared';
 import type { FastifyInstance } from 'fastify';
 import { databaseIsUp } from '../db/client.js';
 import { githubConfigured } from '../env.js';

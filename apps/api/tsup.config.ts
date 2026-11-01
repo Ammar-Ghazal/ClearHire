@@ -10,5 +10,5 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: true,
-  noExternal: ['@hireproof/shared'],
+  noExternal: ['@clearhire/shared'],
 });

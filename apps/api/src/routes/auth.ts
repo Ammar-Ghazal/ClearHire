@@ -9,7 +9,7 @@ import { encrypt, randomToken } from '../lib/crypto.js';
 import { authorizeUrl, exchangeCode, fetchProfile, GitHubAuthError } from '../lib/github.js';
 import { cookieOptions, createSession, destroySession } from '../lib/sessions.js';
 
-const STATE_COOKIE = 'hp_oauth_state';
+const STATE_COOKIE = 'ch_oauth_state';
 
 const CallbackQuery = z.object({
   code: z.string().min(1).optional(),

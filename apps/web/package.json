@@ -1,5 +1,5 @@
 {
-  "name": "@hireproof/web",
+  "name": "@clearhire/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hireproof/shared": "workspace:*",
+    "@clearhire/shared": "workspace:*",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

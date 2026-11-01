@@ -26,7 +26,7 @@ importers:
       '@fastify/rate-limit':
         specifier: ^10.3.0
         version: 10.3.0
-      '@hireproof/shared':
+      '@clearhire/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@octokit/rest':
@@ -75,7 +75,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@hireproof/shared':
+      '@clearhire/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       react:

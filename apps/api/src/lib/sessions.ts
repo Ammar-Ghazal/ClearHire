@@ -6,7 +6,7 @@ import { sessions } from '../db/schema.js';
 import { isProduction } from '../env.js';
 import { randomToken } from './crypto.js';
 
-export const SESSION_COOKIE = 'hp_sid';
+export const SESSION_COOKIE = 'ch_sid';
 const SESSION_DAYS = 30;
 
 export const cookieOptions = {

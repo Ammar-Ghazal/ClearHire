@@ -1,5 +1,5 @@
 {
-  "name": "@hireproof/api",
+  "name": "@clearhire/api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.1",
     "@fastify/rate-limit": "^10.3.0",
-    "@hireproof/shared": "workspace:*",
+    "@clearhire/shared": "workspace:*",
     "@octokit/rest": "^21.1.1",
     "dotenv": "^17.2.0",
     "drizzle-orm": "^0.44.2",

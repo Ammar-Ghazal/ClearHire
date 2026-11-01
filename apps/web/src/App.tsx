@@ -1,4 +1,4 @@
-import type { Health, Me } from '@hireproof/shared';
+import type { Health, Me } from '@clearhire/shared';
 import { useEffect, useState } from 'react';
 import { getHealth, getMe, loginUrl, logout } from './api';
 
@@ -36,7 +36,7 @@ export function App() {
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-2xl px-4 py-12">
         <header className="mb-8">
-          <h1 className="text-3xl font-semibold tracking-tight">HireProof</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">ClearHire</h1>
           <p className="mt-1 text-slate-600">
             Ranks candidates by verified evidence from their code, not by polished résumés.
           </p>
@@ -95,7 +95,7 @@ function SignedOut({ githubConfigured }: { githubConfigured: boolean }) {
     <div>
       <h2 className="text-lg font-medium">Sign in</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Connect your GitHub account to get started. HireProof only reads the repositories you choose.
+        Connect your GitHub account to get started. ClearHire only reads the repositories you choose.
       </p>
       <a
         href={loginUrl}
@@ -147,7 +147,7 @@ function SignedIn({ me, onLogout }: { me: Me; onLogout: () => void }) {
               <>Installed (installation {me.github.installationId}).</>
             ) : me.github.installUrl ? (
               <a className="text-blue-700 underline" href={me.github.installUrl}>
-                Install the HireProof GitHub App and choose repositories
+                Install the ClearHire GitHub App and choose repositories
               </a>
             ) : (
               'Not installed (set GITHUB_APP_SLUG to show the install link).'

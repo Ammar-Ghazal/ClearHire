@@ -1,4 +1,4 @@
-import type { Me } from '@hireproof/shared';
+import type { Me } from '@clearhire/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/client.js';

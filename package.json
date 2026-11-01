@@ -1,20 +1,20 @@
 {
-  "name": "hireproof",
+  "name": "clearhire",
   "private": true,
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @hireproof/api --filter @hireproof/web dev",
+    "dev": "pnpm --parallel --filter @clearhire/api --filter @clearhire/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "format": "prettier --write .",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
-    "db:generate": "pnpm --filter @hireproof/api db:generate",
-    "db:migrate": "pnpm --filter @hireproof/api db:migrate",
+    "db:generate": "pnpm --filter @clearhire/api db:generate",
+    "db:migrate": "pnpm --filter @clearhire/api db:migrate",
     "gen:keys": "node scripts/gen-keys.mjs"
   },
   "devDependencies": {

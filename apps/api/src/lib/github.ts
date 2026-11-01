@@ -79,7 +79,7 @@ export interface GitHubProfile {
 
 /** Reads the signed-in user's profile, verified emails, and their own installation of the App. */
 export async function fetchProfile(accessToken: string): Promise<GitHubProfile> {
-  const octokit = new Octokit({ auth: accessToken, userAgent: 'hireproof' });
+  const octokit = new Octokit({ auth: accessToken, userAgent: 'clearhire' });
 
   const { data: user } = await octokit.rest.users.getAuthenticated();
 

@@ -23,11 +23,16 @@ export async function buildApp() {
   // Typed errors only; details go to the log, never to the client (R-2.9).
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, 'Request failed');
-    const status = error.statusCode && error.statusCode < 500 ? error.statusCode : 500;
+    const caught = error instanceof Error ? error : undefined;
+    const statusCode = caught && 'statusCode' in caught ? caught.statusCode : undefined;
+    const status = typeof statusCode === 'number' && Number.isInteger(statusCode)
+      && statusCode >= 400 && statusCode < 500 ? statusCode : 500;
+    const code = caught && 'code' in caught && typeof caught.code === 'string'
+      ? caught.code : 'bad_request';
     reply.code(status).send({
       error: {
-        code: status === 500 ? 'internal_error' : (error.code ?? 'bad_request'),
-        message: status === 500 ? 'Something went wrong' : error.message,
+        code: status === 500 ? 'internal_error' : code,
+        message: status === 500 ? 'Something went wrong' : caught!.message,
       },
     });
   });

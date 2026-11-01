@@ -1,0 +1,452 @@
+[
+  {
+    "id": "job-01",
+    "employer_id": "openai",
+    "employer": "OpenAI",
+    "title": "Software Engineer, IP Infrastructure",
+    "location": "San Francisco",
+    "requirements_summary": [
+      "Python backend",
+      "delivery pipelines",
+      "testing",
+      "containers"
+    ],
+    "source_url": "https://openai.com/careers/software-engineer-ip-infrastructure-san-francisco/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-02",
+    "employer_id": "meta",
+    "employer": "Meta",
+    "title": "Software Engineer, Machine Learning",
+    "location": "Menlo Park, CA",
+    "requirements_summary": [
+      "Machine learning",
+      "TensorFlow or PyTorch or scikit-learn",
+      "Software engineering"
+    ],
+    "source_url": "https://www.metacareers.com/profile/job_details/1505899738040251/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Third-party indexed record; official site access restricted; active status unconfirmed",
+    "verification_source_url": "https://tracker.mccoy.io/postings/meta%3A1505899738040251"
+  },
+  {
+    "id": "job-03",
+    "employer_id": "openai",
+    "employer": "OpenAI",
+    "title": "Software Engineer, CI/CD & ML Infrastructure",
+    "location": "San Francisco",
+    "requirements_summary": [
+      "CI/CD",
+      "model infrastructure",
+      "automation",
+      "containers"
+    ],
+    "source_url": "https://openai.com/careers/software-engineer-cicd-and-ml-infrastructure-san-francisco/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-04",
+    "employer_id": "meta",
+    "employer": "Meta",
+    "title": "Software Engineer, Systems ML - Compilers",
+    "location": "Sunnyvale, CA",
+    "requirements_summary": [
+      "C++",
+      "LLVM or MLIR",
+      "ML compilers",
+      "Accelerator architectures"
+    ],
+    "source_url": "https://www.metacareers.com/profile/job_details/1086005087697425/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Third-party indexed record; official site access restricted; active status unconfirmed",
+    "verification_source_url": "https://tracker.mccoy.io/postings/meta%3A1086005087697425"
+  },
+  {
+    "id": "job-05",
+    "employer_id": "openai",
+    "employer": "OpenAI",
+    "title": "Research Engineer / Research Scientist / AI Systems Engineer, RSI",
+    "location": "San Francisco",
+    "requirements_summary": [
+      "Model training",
+      "evaluation",
+      "research automation",
+      "AI systems"
+    ],
+    "source_url": "https://openai.com/careers/research-engineer-research-scientist-ai-systems-engineer-rsi-san-francisco/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [
+      "Andrej Karpathy"
+    ],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-06",
+    "employer_id": "meta",
+    "employer": "Meta",
+    "title": "Software Engineer, Infastructure - Central Integrity",
+    "location": "Menlo Park, CA",
+    "requirements_summary": [
+      "Large-scale infrastructure",
+      "Abuse detection",
+      "Security",
+      "Testing and monitoring"
+    ],
+    "source_url": "https://www.metacareers.com/profile/job_details/3661368204023469/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Third-party indexed record; official site access restricted; active status unconfirmed",
+    "verification_source_url": "https://tracker.mccoy.io/postings/meta%3A3661368204023469"
+  },
+  {
+    "id": "job-07",
+    "employer_id": "meta",
+    "employer": "Meta",
+    "title": "Software Engineer, Realtime Engine Technology - Reality Labs",
+    "location": "Los Angeles, CA",
+    "requirements_summary": [
+      "C or C++",
+      "Real-time systems",
+      "3D interactive engines",
+      "Performance optimization"
+    ],
+    "source_url": "https://www.metacareers.com/profile/job_details/1374214794794505/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Third-party indexed record; official site access restricted; active status unconfirmed",
+    "verification_source_url": "https://tracker.mccoy.io/postings/meta%3A1374214794794505"
+  },
+  {
+    "id": "job-08",
+    "employer_id": "meta",
+    "employer": "Meta",
+    "title": "Embedded Software Engineer",
+    "location": "Taipei, Taiwan",
+    "requirements_summary": [
+      "C and C++",
+      "Embedded firmware",
+      "Real-time operating systems",
+      "Hardware debugging"
+    ],
+    "source_url": "https://www.metacareers.com/profile/job_details/1380163667611704/",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Third-party indexed record; official site access restricted; active status unconfirmed",
+    "verification_source_url": "https://tracker.mccoy.io/postings/meta%3A1380163667611704"
+  },
+  {
+    "id": "job-09",
+    "employer_id": "google",
+    "employer": "Google",
+    "title": "Senior Software Engineer, Ask Google Pay",
+    "location": "Singapore",
+    "requirements_summary": [
+      "Full-stack development",
+      "Java, Python, Go or C++",
+      "Flutter and Dart"
+    ],
+    "source_url": "https://www.google.com/about/careers/applications/jobs/results/131138433534829254-senior-software-engineer-ask-google-pay",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Listing observed; recheck before demo"
+  },
+  {
+    "id": "job-10",
+    "employer_id": "mytos",
+    "employer": "Mytos",
+    "title": "Junior/Mid Software Engineer",
+    "location": "London, hybrid",
+    "requirements_summary": [
+      "Full-stack product",
+      "React",
+      "TypeScript",
+      "GraphQL"
+    ],
+    "source_url": "https://jobs.lever.co/mytos/bbb558c0-d769-4b5f-a3a7-025642c2626d",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-11",
+    "employer_id": "lyra-health",
+    "employer": "Lyra Health",
+    "title": "Sr. DevOps Engineer",
+    "location": "United States, remote",
+    "requirements_summary": [
+      "AWS",
+      "Terraform",
+      "Python",
+      "Kubernetes",
+      "CI/CD"
+    ],
+    "source_url": "https://jobs.lever.co/lyrahealth/9cb5c833-0c95-4983-8125-de15665872b8",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-12",
+    "employer_id": "cprime",
+    "employer": "Cprime",
+    "title": "Senior DevSecOps and Cloud Engineer",
+    "location": "Chennai or Hyderabad, hybrid",
+    "requirements_summary": [
+      "Cloud",
+      "Terraform",
+      "GitHub Actions",
+      "Docker",
+      "Kubernetes"
+    ],
+    "source_url": "https://jobs.lever.co/cprime/79522f4e-6103-4f1a-a90b-202aab776f8b",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-13",
+    "employer_id": "scaleway",
+    "employer": "Scaleway",
+    "title": "Backend Software Engineer (Python / DevOps)",
+    "location": "Paris, hybrid",
+    "requirements_summary": [
+      "Python",
+      "APIs",
+      "Docker",
+      "CI/CD",
+      "infrastructure automation"
+    ],
+    "source_url": "https://jobs.lever.co/scaleway/ad74cfd6-edb5-4ea7-a998-52cf8945112b",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-14",
+    "employer_id": "zimperium",
+    "employer": "Zimperium",
+    "title": "AI Software Engineer (DevOps)",
+    "location": "India, remote / Bangalore",
+    "requirements_summary": [
+      "Python services",
+      "cloud",
+      "containers",
+      "Terraform",
+      "CI/CD"
+    ],
+    "source_url": "https://jobs.lever.co/zimperium/5b35759a-d445-4fcb-b255-d719330af055",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-15",
+    "employer_id": "scaleway",
+    "employer": "Scaleway",
+    "title": "Full Stack Software Engineer (Python / React)",
+    "location": "Paris, hybrid",
+    "requirements_summary": [
+      "Python APIs",
+      "Testing",
+      "React and TypeScript or infrastructure automation"
+    ],
+    "source_url": "https://jobs.lever.co/scaleway/3034a4ec-22e3-4406-a983-5e3d1a1b3d39",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Listing observed; recheck before demo"
+  },
+  {
+    "id": "job-16",
+    "employer_id": "foodsmart",
+    "employer": "Foodsmart",
+    "title": "Senior QA Engineer",
+    "location": "US, remote",
+    "requirements_summary": [
+      "Software quality",
+      "TypeScript or Python",
+      "test automation",
+      "SQL"
+    ],
+    "source_url": "https://jobs.lever.co/foodsmart/b90e59c7-61dc-4b4d-9ac5-5147cfed0e14",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-17",
+    "employer_id": "foodsmart",
+    "employer": "Foodsmart",
+    "title": "Senior Manager, Data Platform",
+    "location": "US, remote",
+    "requirements_summary": [
+      "Data engineering leadership",
+      "SQL",
+      "Python",
+      "dbt",
+      "orchestration"
+    ],
+    "source_url": "https://jobs.lever.co/foodsmart/9a63ca78-c33b-455b-b44a-4bd76a428c0c",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-18",
+    "employer_id": "swile",
+    "employer": "Swile",
+    "title": "Senior Data Platform Engineer",
+    "location": "Paris, hybrid",
+    "requirements_summary": [
+      "Data platform",
+      "Python",
+      "Airflow",
+      "Kafka",
+      "Terraform"
+    ],
+    "source_url": "https://jobs.lever.co/swile/2883d123-bbd8-4cce-93b3-04b8e387bca8",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-19",
+    "employer_id": "netflix",
+    "employer": "Netflix",
+    "title": "Software Engineer 5 – Model Development and Management, AI Platform",
+    "location": "United States, remote",
+    "requirements_summary": [
+      "ML platform",
+      "Model development and evaluation",
+      "Distributed applications",
+      "Developer tools"
+    ],
+    "source_url": "https://explore.jobs.netflix.net/careers?pid=790318081427",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Official search index shows role; dynamic page details may require browser; recheck status"
+  },
+  {
+    "id": "job-20",
+    "employer_id": "foodsmart",
+    "employer": "Foodsmart",
+    "title": "Staff Software Engineer",
+    "location": "United States, remote",
+    "requirements_summary": [
+      "React and TypeScript",
+      "Backend services",
+      "SQL",
+      "Architecture and migrations"
+    ],
+    "source_url": "https://jobs.lever.co/foodsmart/5f4faa0f-b53c-4b0a-993a-53f07a906dc1",
+    "source_checked": "2026-11-01",
+    "scenario": "possible_skill_overlap",
+    "candidate_overlap_hypotheses": [],
+    "availability": "Listing observed; recheck before demo"
+  },
+  {
+    "id": "job-21",
+    "employer_id": "porter-cares",
+    "employer": "Porter Cares",
+    "title": "New Jersey Registered Nurse (Northeast Region)",
+    "location": "New Jersey, on-site",
+    "requirements_summary": [
+      "New Jersey RN license",
+      "patient-care experience"
+    ],
+    "source_url": "https://jobs.lever.co/porter/71c15359-41b2-4df8-882a-0315db2b2149",
+    "source_checked": "2026-11-01",
+    "scenario": "out_of_scope_negative_control",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-22",
+    "employer_id": "pivotal",
+    "employer": "Pivotal",
+    "title": "Aircraft Mechanic II",
+    "location": "Palo Alto, CA, on-site",
+    "requirements_summary": [
+      "Aircraft maintenance",
+      "FAA A&P or accepted military equivalent"
+    ],
+    "source_url": "https://jobs.lever.co/pivotal/f986a2da-0723-4b3a-a14b-b4b137b165e1",
+    "source_checked": "2026-11-01",
+    "scenario": "out_of_scope_negative_control",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-23",
+    "employer_id": "foodsmart",
+    "employer": "Foodsmart",
+    "title": "Registered Dietitian (Partner) - Washington License",
+    "location": "US, remote",
+    "requirements_summary": [
+      "Registered dietitian credential",
+      "Washington certification"
+    ],
+    "source_url": "https://jobs.lever.co/foodsmart/27d59d1b-eb64-449b-b45c-ac21b242fa45",
+    "source_checked": "2026-11-01",
+    "scenario": "out_of_scope_negative_control",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-24",
+    "employer_id": "fyzical",
+    "employer": "FYZICAL",
+    "title": "Physical Therapist Outpatient",
+    "location": "Reno, NV, on-site",
+    "requirements_summary": [
+      "Physical therapy education",
+      "Nevada license or eligibility"
+    ],
+    "source_url": "https://jobs.lever.co/fyzicalhq/ee5a2f01-3056-4989-aeea-e8d24b9c89d4",
+    "source_checked": "2026-11-01",
+    "scenario": "out_of_scope_negative_control",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  },
+  {
+    "id": "job-25",
+    "employer_id": "western-aircraft",
+    "employer": "Western Aircraft",
+    "title": "Pilatus PC-12/47E 14 CFR 135 Captain",
+    "location": "Boise, ID, on-site",
+    "requirements_summary": [
+      "Commercial pilot and instrument ratings",
+      "flight-hour minimums"
+    ],
+    "source_url": "https://jobs.lever.co/westair/f6143fd2-e540-4a18-8fda-279ae18bcc60",
+    "source_checked": "2026-11-01",
+    "scenario": "out_of_scope_negative_control",
+    "candidate_overlap_hypotheses": [],
+    "availability": "listing observed; recheck before demo"
+  }
+]

@@ -1,0 +1,497 @@
+{
+  "id": "clearhire-skills-v1",
+  "name": "ClearHire Skill Metrics v1",
+  "version": 1,
+  "kind": "catalogue",
+  "category_count": 10,
+  "skill_count": 100,
+  "provenance": {
+    "source": "User-provided skill list",
+    "possible_upstream_source": "ESCO",
+    "esco_mapping_status": "unverified",
+    "note": "ESCO origin was suggested by the user. No exact ESCO concept mappings or identifiers have been verified."
+  },
+  "usage": {
+    "consumers": [
+      "candidate_analysis",
+      "job_parsing"
+    ],
+    "skill_reference_fields": [
+      "catalogue_id",
+      "skill_id"
+    ],
+    "id_policy": "Skill IDs are stable within this version. Do not derive IDs from display labels at runtime or reuse an ID for a different capability.",
+    "supporting_tags": {
+      "purpose": "Languages, frameworks, platforms and tools provide context; they are not standalone capability evidence.",
+      "examples": [
+        "Python",
+        "React",
+        "AWS",
+        "PostgreSQL"
+      ]
+    },
+    "scoring": "This catalogue defines a shared vocabulary, not a scoring rubric or proficiency standard."
+  },
+  "categories": [
+    {
+      "id": "programming-fundamentals",
+      "name": "Programming fundamentals",
+      "skills": [
+        {
+          "id": "data-structures",
+          "name": "Data structures"
+        },
+        {
+          "id": "algorithms",
+          "name": "Algorithms"
+        },
+        {
+          "id": "complexity-analysis",
+          "name": "Complexity analysis"
+        },
+        {
+          "id": "code-organization-and-modularity",
+          "name": "Code organization and modularity"
+        },
+        {
+          "id": "object-oriented-design",
+          "name": "Object-oriented design"
+        },
+        {
+          "id": "functional-programming",
+          "name": "Functional programming"
+        },
+        {
+          "id": "error-handling",
+          "name": "Error handling"
+        },
+        {
+          "id": "concurrency-and-asynchronous-programming",
+          "name": "Concurrency and asynchronous programming"
+        },
+        {
+          "id": "memory-management",
+          "name": "Memory management"
+        },
+        {
+          "id": "debugging",
+          "name": "Debugging"
+        }
+      ]
+    },
+    {
+      "id": "software-design-and-quality",
+      "name": "Software design and quality",
+      "skills": [
+        {
+          "id": "api-design",
+          "name": "API design"
+        },
+        {
+          "id": "domain-modeling",
+          "name": "Domain modeling"
+        },
+        {
+          "id": "design-patterns",
+          "name": "Design patterns"
+        },
+        {
+          "id": "refactoring",
+          "name": "Refactoring"
+        },
+        {
+          "id": "unit-testing",
+          "name": "Unit testing"
+        },
+        {
+          "id": "integration-testing",
+          "name": "Integration testing"
+        },
+        {
+          "id": "end-to-end-testing",
+          "name": "End-to-end testing"
+        },
+        {
+          "id": "property-based-testing",
+          "name": "Property-based testing"
+        },
+        {
+          "id": "static-analysis-and-type-safety",
+          "name": "Static analysis and type safety"
+        },
+        {
+          "id": "technical-documentation",
+          "name": "Technical documentation"
+        }
+      ]
+    },
+    {
+      "id": "frontend-engineering",
+      "name": "Frontend engineering",
+      "skills": [
+        {
+          "id": "semantic-html",
+          "name": "Semantic HTML"
+        },
+        {
+          "id": "css-and-layout",
+          "name": "CSS and layout"
+        },
+        {
+          "id": "responsive-design",
+          "name": "Responsive design"
+        },
+        {
+          "id": "accessibility",
+          "name": "Accessibility"
+        },
+        {
+          "id": "component-architecture",
+          "name": "Component architecture"
+        },
+        {
+          "id": "client-state-management",
+          "name": "Client state management"
+        },
+        {
+          "id": "forms-and-input-validation",
+          "name": "Forms and input validation"
+        },
+        {
+          "id": "browser-networking-and-data-fetching",
+          "name": "Browser networking and data fetching"
+        },
+        {
+          "id": "frontend-performance",
+          "name": "Frontend performance"
+        },
+        {
+          "id": "server-rendering-and-hydration",
+          "name": "Server rendering and hydration"
+        }
+      ]
+    },
+    {
+      "id": "backend-engineering",
+      "name": "Backend engineering",
+      "skills": [
+        {
+          "id": "http-service-implementation",
+          "name": "HTTP service implementation"
+        },
+        {
+          "id": "authentication",
+          "name": "Authentication"
+        },
+        {
+          "id": "authorization",
+          "name": "Authorization"
+        },
+        {
+          "id": "business-workflow-implementation",
+          "name": "Business workflow implementation"
+        },
+        {
+          "id": "background-job-processing",
+          "name": "Background job processing"
+        },
+        {
+          "id": "event-driven-application-development",
+          "name": "Event-driven application development"
+        },
+        {
+          "id": "external-service-integration",
+          "name": "External service integration"
+        },
+        {
+          "id": "caching-implementation",
+          "name": "Caching implementation"
+        },
+        {
+          "id": "real-time-communication",
+          "name": "Real-time communication"
+        },
+        {
+          "id": "api-versioning-and-compatibility",
+          "name": "API versioning and compatibility"
+        }
+      ]
+    },
+    {
+      "id": "databases-and-data-engineering",
+      "name": "Databases and data engineering",
+      "skills": [
+        {
+          "id": "relational-schema-design",
+          "name": "Relational schema design"
+        },
+        {
+          "id": "sql-querying",
+          "name": "SQL querying"
+        },
+        {
+          "id": "query-optimization-and-indexing",
+          "name": "Query optimization and indexing"
+        },
+        {
+          "id": "transactions-and-consistency",
+          "name": "Transactions and consistency"
+        },
+        {
+          "id": "database-migrations",
+          "name": "Database migrations"
+        },
+        {
+          "id": "non-relational-data-modeling",
+          "name": "Non-relational data modeling"
+        },
+        {
+          "id": "batch-data-pipelines",
+          "name": "Batch data pipelines"
+        },
+        {
+          "id": "streaming-data-pipelines",
+          "name": "Streaming data pipelines"
+        },
+        {
+          "id": "data-quality-and-validation",
+          "name": "Data quality and validation"
+        },
+        {
+          "id": "data-warehouse-modeling",
+          "name": "Data warehouse modeling"
+        }
+      ]
+    },
+    {
+      "id": "systems-and-architecture",
+      "name": "Systems and architecture",
+      "skills": [
+        {
+          "id": "distributed-system-design",
+          "name": "Distributed system design"
+        },
+        {
+          "id": "service-decomposition",
+          "name": "Service decomposition"
+        },
+        {
+          "id": "inter-service-communication",
+          "name": "Inter-service communication"
+        },
+        {
+          "id": "fault-tolerance",
+          "name": "Fault tolerance"
+        },
+        {
+          "id": "scalability-and-capacity-planning",
+          "name": "Scalability and capacity planning"
+        },
+        {
+          "id": "system-performance-profiling",
+          "name": "System performance profiling"
+        },
+        {
+          "id": "storage-system-design",
+          "name": "Storage system design"
+        },
+        {
+          "id": "network-programming",
+          "name": "Network programming"
+        },
+        {
+          "id": "operating-system-integration",
+          "name": "Operating system integration"
+        },
+        {
+          "id": "embedded-and-resource-constrained-software",
+          "name": "Embedded and resource-constrained software"
+        }
+      ]
+    },
+    {
+      "id": "cloud-devops-and-reliability",
+      "name": "Cloud, DevOps and reliability",
+      "skills": [
+        {
+          "id": "containerization",
+          "name": "Containerization"
+        },
+        {
+          "id": "container-orchestration",
+          "name": "Container orchestration"
+        },
+        {
+          "id": "infrastructure-as-code",
+          "name": "Infrastructure as code"
+        },
+        {
+          "id": "ci-cd-pipelines",
+          "name": "CI/CD pipelines"
+        },
+        {
+          "id": "cloud-infrastructure-configuration",
+          "name": "Cloud infrastructure configuration"
+        },
+        {
+          "id": "deployment-and-release-engineering",
+          "name": "Deployment and release engineering"
+        },
+        {
+          "id": "observability-and-instrumentation",
+          "name": "Observability and instrumentation"
+        },
+        {
+          "id": "incident-diagnosis-and-recovery",
+          "name": "Incident diagnosis and recovery"
+        },
+        {
+          "id": "backup-and-disaster-recovery",
+          "name": "Backup and disaster recovery"
+        },
+        {
+          "id": "infrastructure-cost-optimization",
+          "name": "Infrastructure cost optimization"
+        }
+      ]
+    },
+    {
+      "id": "machine-learning-and-ai",
+      "name": "Machine learning and AI",
+      "skills": [
+        {
+          "id": "data-preparation-and-feature-engineering",
+          "name": "Data preparation and feature engineering"
+        },
+        {
+          "id": "statistical-analysis-and-experimentation",
+          "name": "Statistical analysis and experimentation"
+        },
+        {
+          "id": "classical-machine-learning",
+          "name": "Classical machine learning"
+        },
+        {
+          "id": "deep-learning",
+          "name": "Deep learning"
+        },
+        {
+          "id": "model-evaluation-and-validation",
+          "name": "Model evaluation and validation"
+        },
+        {
+          "id": "natural-language-processing",
+          "name": "Natural language processing"
+        },
+        {
+          "id": "computer-vision",
+          "name": "Computer vision"
+        },
+        {
+          "id": "retrieval-and-search-systems",
+          "name": "Retrieval and search systems"
+        },
+        {
+          "id": "llm-application-and-agent-engineering",
+          "name": "LLM application and agent engineering"
+        },
+        {
+          "id": "model-deployment-and-monitoring",
+          "name": "Model deployment and monitoring"
+        }
+      ]
+    },
+    {
+      "id": "security-engineering",
+      "name": "Security engineering",
+      "skills": [
+        {
+          "id": "threat-modeling",
+          "name": "Threat modeling"
+        },
+        {
+          "id": "secure-input-handling",
+          "name": "Secure input handling"
+        },
+        {
+          "id": "secrets-and-key-management",
+          "name": "Secrets and key management"
+        },
+        {
+          "id": "cryptographic-implementation-and-integration",
+          "name": "Cryptographic implementation and integration"
+        },
+        {
+          "id": "network-security",
+          "name": "Network security"
+        },
+        {
+          "id": "application-security-testing",
+          "name": "Application security testing"
+        },
+        {
+          "id": "dependency-and-supply-chain-security",
+          "name": "Dependency and supply-chain security"
+        },
+        {
+          "id": "security-logging-and-detection",
+          "name": "Security logging and detection"
+        },
+        {
+          "id": "privacy-engineering",
+          "name": "Privacy engineering"
+        },
+        {
+          "id": "infrastructure-security-hardening",
+          "name": "Infrastructure security hardening"
+        }
+      ]
+    },
+    {
+      "id": "mobile-and-specialized-applications",
+      "name": "Mobile and specialized applications",
+      "skills": [
+        {
+          "id": "native-mobile-development",
+          "name": "Native mobile development"
+        },
+        {
+          "id": "cross-platform-mobile-development",
+          "name": "Cross-platform mobile development"
+        },
+        {
+          "id": "mobile-lifecycle-and-state-management",
+          "name": "Mobile lifecycle and state management"
+        },
+        {
+          "id": "offline-first-synchronization",
+          "name": "Offline-first synchronization"
+        },
+        {
+          "id": "device-hardware-integration",
+          "name": "Device hardware integration"
+        },
+        {
+          "id": "desktop-application-development",
+          "name": "Desktop application development"
+        },
+        {
+          "id": "command-line-tool-development",
+          "name": "Command-line tool development"
+        },
+        {
+          "id": "developer-tooling-and-build-systems",
+          "name": "Developer tooling and build systems"
+        },
+        {
+          "id": "graphics-and-interactive-visualization",
+          "name": "Graphics and interactive visualization"
+        },
+        {
+          "id": "game-and-simulation-development",
+          "name": "Game and simulation development"
+        }
+      ]
+    }
+  ]
+}

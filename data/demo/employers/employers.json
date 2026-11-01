@@ -1,0 +1,107 @@
+[
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "description": "AI research and deployment",
+    "url": "https://openai.com/",
+    "candidate_connection": "Andrej Karpathy identifies OpenAI as a former employer: https://karpathy.ai/"
+  },
+  {
+    "id": "mytos",
+    "name": "Mytos",
+    "description": "Biotechnology automation",
+    "url": "https://jobs.lever.co/mytos",
+    "candidate_connection": null
+  },
+  {
+    "id": "lyra-health",
+    "name": "Lyra Health",
+    "description": "Mental healthcare",
+    "url": "https://jobs.lever.co/lyrahealth",
+    "candidate_connection": null
+  },
+  {
+    "id": "cprime",
+    "name": "Cprime",
+    "description": "Technology consulting",
+    "url": "https://jobs.lever.co/cprime",
+    "candidate_connection": null
+  },
+  {
+    "id": "scaleway",
+    "name": "Scaleway",
+    "description": "Cloud infrastructure",
+    "url": "https://jobs.lever.co/scaleway",
+    "candidate_connection": null
+  },
+  {
+    "id": "zimperium",
+    "name": "Zimperium",
+    "description": "Mobile security",
+    "url": "https://jobs.lever.co/zimperium",
+    "candidate_connection": null
+  },
+  {
+    "id": "foodsmart",
+    "name": "Foodsmart",
+    "description": "Nutrition and healthcare",
+    "url": "https://jobs.lever.co/foodsmart",
+    "candidate_connection": null
+  },
+  {
+    "id": "swile",
+    "name": "Swile",
+    "description": "Employee benefits and workplace services",
+    "url": "https://jobs.lever.co/swile",
+    "candidate_connection": null
+  },
+  {
+    "id": "porter-cares",
+    "name": "Porter Cares",
+    "description": "Healthcare services",
+    "url": "https://jobs.lever.co/porter",
+    "candidate_connection": null
+  },
+  {
+    "id": "pivotal",
+    "name": "Pivotal",
+    "description": "Electric aircraft",
+    "url": "https://jobs.lever.co/pivotal",
+    "candidate_connection": null
+  },
+  {
+    "id": "fyzical",
+    "name": "FYZICAL",
+    "description": "Physical therapy",
+    "url": "https://jobs.lever.co/fyzicalhq",
+    "candidate_connection": null
+  },
+  {
+    "id": "western-aircraft",
+    "name": "Western Aircraft",
+    "description": "Aircraft services and aviation",
+    "url": "https://jobs.lever.co/westair",
+    "candidate_connection": null
+  },
+  {
+    "id": "meta",
+    "name": "Meta",
+    "description": "Social technology and AI",
+    "url": "https://www.metacareers.com/",
+    "candidate_connection": null
+  },
+  {
+    "id": "google",
+    "name": "Google",
+    "description": "Search, cloud and technology products",
+    "url": "https://www.google.com/about/careers/applications/",
+    "candidate_connection": null
+  },
+  {
+    "id": "netflix",
+    "name": "Netflix",
+    "description": "Streaming entertainment and technology",
+    "url": "https://explore.jobs.netflix.net/careers",
+    "candidate_connection": null
+  }
+]

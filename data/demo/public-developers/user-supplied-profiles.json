@@ -1,0 +1,113 @@
+{
+  "saved_on": "2026-11-01",
+  "source": "Provided by Ammar in ClearHire chat.",
+  "discovery_method": "User clicked through GitHub and searched for names online.",
+  "verification_status": "user_supplied_not_independently_verified",
+  "notes": [
+    "Names and URLs preserved exactly as supplied, including spelling.",
+    "Resume URLs may refer to a personal website or LinkedIn profile rather than a downloadable resume.",
+    "Missing resumes are null. Public repositories and person/account associations have not been checked.",
+    "Do not infer individual code authorship from an account link; verify account type and contributions before assessment."
+  ],
+  "profiles": [
+    {
+      "name": "Sindre Sorhus",
+      "github_url": "https://github.com/sindresorhus",
+      "resume_url": "https://standardresume.co/r/sindre-sorhus",
+      "resume_type": "hosted_resume",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Andrej Karpathy",
+      "github_url": "https://github.com/karpathy",
+      "resume_url": "https://karpathy.ai",
+      "resume_type": "personal_website",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Donne Martin",
+      "github_url": "https://github.com/donnemartin",
+      "resume_url": "https://www.linkedin.com/in/donnemartin/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Kamran Ahmed",
+      "github_url": "https://github.com/nilbuild",
+      "resume_url": "https://kamran.fyi",
+      "resume_type": "personal_website",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Chao Huang",
+      "github_url": "https://github.com/HKUDS",
+      "resume_url": "https://sites.google.com/view/chaoh",
+      "resume_type": "personal_website",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "John Washam",
+      "github_url": "https://github.com/jwasham",
+      "resume_url": "https://www.linkedin.com/in/johnawasham/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Latifa Lhadifi",
+      "github_url": "https://github.com/LatifaLhafidi",
+      "resume_url": null,
+      "resume_type": null,
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Anas Zahou",
+      "github_url": "https://github.com/Skeurz",
+      "resume_url": "https://www.linkedin.com/in/anas-zahou-3b4005199/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Nwigrat",
+      "github_url": "https://github.com/Nwigrat",
+      "resume_url": null,
+      "resume_type": null,
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Elkhoudrifadoua",
+      "github_url": "https://github.com/Elkhoudrifadoua",
+      "resume_url": null,
+      "resume_type": null,
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    },
+    {
+      "name": "Ruben Edery",
+      "github_url": "https://github.com/rubenedery",
+      "resume_url": "https://www.linkedin.com/in/ruben-edery/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null
+    }
+  ]
+}

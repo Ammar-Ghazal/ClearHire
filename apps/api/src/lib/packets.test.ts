@@ -22,7 +22,7 @@ type Files = Record<string, string>;
 function snap(files: Files, skipped: RepoSnapshot['skipped'] = []): RepoSnapshot {
   return {
     commitSha: 'commit-1',
-    files: Object.entries(files).map(([path, content]) => ({ path, content })),
+    files: Object.entries(files).map(([path, content]) => ({ path, sha: `sha-${path}`, content })),
     skipped,
   };
 }
@@ -263,7 +263,7 @@ describe('manifests', () => {
     const out = buildPackets(
       {
         commitSha: 'fixture',
-        files: [{ path: 'package.json', content: '{"dependencies":{"foo\\u0000bar":"1"}}' }],
+        files: [{ path: 'package.json', sha: 'sha-1', content: '{"dependencies":{"foo\\u0000bar":"1"}}' }],
         skipped: [],
       },
       { owner: 'fixture', repo: 'review' },

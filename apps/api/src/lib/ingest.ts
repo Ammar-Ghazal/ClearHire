@@ -19,7 +19,8 @@ export const DEFAULT_LIMITS: IngestLimits = {
 
 export interface RepoSnapshot {
   commitSha: string;
-  files: { path: string; content: string }[];
+  /** `sha` is the git blob SHA, so later steps can tell whether a file changed since a commit. */
+  files: { path: string; sha: string; content: string }[];
   skipped: { path: string; reason: SkipReason }[];
 }
 
@@ -51,7 +52,7 @@ interface HttpError {
 }
 
 // Maps an Octokit failure to a typed error. Never copies the original message or response body.
-function toIngestError(err: unknown, step: string, signal: AbortSignal): IngestError {
+export function toIngestError(err: unknown, step: string, signal: AbortSignal): IngestError {
   if (err instanceof IngestError) return err;
   if (signal.aborted) return new IngestError('timeout', `Timed out during ${step}`);
 
@@ -154,7 +155,7 @@ export async function ingestRepo(
       skipped.push({ path: entry.path, reason: 'not_text' });
       continue;
     }
-    files.push({ path: entry.path, content });
+    files.push({ path: entry.path, sha: entry.sha, content });
   }
 
   const byPath = (a: { path: string }, b: { path: string }) =>

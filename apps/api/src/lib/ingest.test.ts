@@ -77,8 +77,8 @@ describe('ingestRepo', () => {
       'sha-src/z.ts',
     ]);
     expect(snap.files).toEqual([
-      { path: 'src/a.ts', content: 'export const a = 1;\n' },
-      { path: 'src/z.ts', content: '// src/z.ts\n' },
+      { path: 'src/a.ts', sha: 'sha-src/a.ts', content: 'export const a = 1;\n' },
+      { path: 'src/z.ts', sha: 'sha-src/z.ts', content: '// src/z.ts\n' },
     ]);
     expect(snap.skipped).toEqual([
       { path: 'libs/sub', reason: 'submodule' },
@@ -112,7 +112,7 @@ describe('ingestRepo', () => {
   it('preserves a leading UTF-8 byte-order mark in source content', async () => {
     const content = '\uFEFFexport const value = 1;\n';
     const { octokit } = fakeOctokit([{ path: 'a.ts', content: Buffer.from(content) }]);
-    expect((await ingestRepo(octokit, target)).files).toEqual([{ path: 'a.ts', content }]);
+    expect((await ingestRepo(octokit, target)).files).toEqual([{ path: 'a.ts', sha: 'sha-a.ts', content }]);
   });
 
   it('rejects too many files or bytes before fetching any blob', async () => {

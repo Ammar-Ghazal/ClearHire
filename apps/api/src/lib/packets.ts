@@ -348,13 +348,18 @@ interface JsonFrame {
   lastKey: string | null;
 }
 
+interface JsonKey {
+  parent: string;
+  key: string;
+  line: number;
+}
+
 /**
- * Maps depth-1 keys (`key`) and depth-2 keys (`parent\0key`) of already-parsed JSON to their line,
- * in file order. Returns null on a duplicate key at either depth.
+ * Lists depth-2 keys of already-parsed JSON with their root key and line, in file order. Returns
+ * null on a duplicate key at depth 1 or 2.
  */
-function scanJsonKeys(json: string): { lines: Map<string, number>; order: string[] } | null {
-  const lines = new Map<string, number>();
-  const order: string[] = [];
+function scanJsonKeys(json: string): JsonKey[] | null {
+  const keys: JsonKey[] = [];
   const stack: JsonFrame[] = [];
   let line = 1;
 
@@ -371,9 +376,7 @@ function scanJsonKeys(json: string): { lines: Map<string, number>; order: string
         if (stack.length <= 2) {
           if (top.keys.has(key)) return null;
           top.keys.add(key);
-          const id = stack.length === 1 ? key : `${top.parent}\0${key}`;
-          lines.set(id, line);
-          if (stack.length === 2) order.push(id);
+          if (stack.length === 2 && top.parent !== null) keys.push({ parent: top.parent, key, line });
         }
         top.expectKey = false;
         top.lastKey = key;
@@ -390,7 +393,7 @@ function scanJsonKeys(json: string): { lines: Map<string, number>; order: string
       if (top?.isObject) top.expectKey = true;
     }
   }
-  return { lines, order };
+  return keys;
 }
 
 function summarizeNpm(text: string): Summary | null {
@@ -412,13 +415,12 @@ function summarizeNpm(text: string): Summary | null {
   // Walk keys in file order; Object.entries would move integer-like names first.
   const dependencies: Dependency[] = [];
   const scripts: string[] = [];
-  for (const id of keys.order) {
-    const [parent, name] = id.split('\0') as [string, string];
+  for (const { parent, key, line } of keys) {
     if (NPM_SECTIONS.includes(parent)) {
-      const spec = (root[parent] as Record<string, string>)[name]!;
-      dependencies.push({ name, section: parent, spec, line: keys.lines.get(id)! });
+      const spec = (root[parent] as Record<string, string>)[key]!;
+      dependencies.push({ name: key, section: parent, spec, line });
     } else if (parent === 'scripts') {
-      scripts.push(name);
+      scripts.push(key);
     }
   }
   return {
@@ -529,7 +531,10 @@ const JS_SWAPS: Record<string, string[]> = {
 const PY_FROM_IMPORT = /^\s*from\s+(\.+)([\w.]*)\s+import\s+(.+?)\s*$/;
 const PY_NAMES = /^(?:\*|\w+(?:\s+as\s+\w+)?(?:\s*,\s*\w+(?:\s+as\s+\w+)?)*)$/;
 
-/** Joins relative segments onto a directory, or returns null when they climb above the root. */
+/**
+ * Joins relative segments onto a directory. The repository root is `''`; null means the segments
+ * climb above it.
+ */
 function joinPath(dirs: string[], relative: string[]): string | null {
   const out = [...dirs];
   for (const segment of relative) {
@@ -537,7 +542,7 @@ function joinPath(dirs: string[], relative: string[]): string | null {
     if (segment !== '..') out.push(segment);
     else if (out.pop() === undefined) return null;
   }
-  return out.length > 0 ? out.join('/') : null;
+  return out.join('/');
 }
 
 function extensionOf(path: string): string {
@@ -547,6 +552,8 @@ function extensionOf(path: string): string {
 }
 
 function jsCandidates(target: string): string[] {
+  // The root directory itself can only resolve to a root index file.
+  if (target === '') return JS_EXTENSIONS.map((e) => `index${e}`);
   const ext = extensionOf(target);
   const swaps = (JS_SWAPS[ext] ?? []).map((s) => target.slice(0, -ext.length) + s);
   return [
@@ -576,7 +583,7 @@ function importCandidates(isPython: boolean, dirs: string[], text: string): stri
   const module = match[2]!;
   const resolve = (segments: string[]) => {
     const path = joinPath(base, segments);
-    return path === null ? [] : [[`${path}.py`, `${path}/__init__.py`]];
+    return path === null || path === '' ? [] : [[`${path}.py`, `${path}/__init__.py`]];
   };
 
   if (module !== '') {

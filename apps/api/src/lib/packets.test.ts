@@ -259,6 +259,20 @@ describe('manifests', () => {
     expect(out.chunks).toEqual([]);
   });
 
+  it('keeps a dependency name containing an escaped NUL intact', () => {
+    const out = buildPackets(
+      {
+        commitSha: 'fixture',
+        files: [{ path: 'package.json', content: '{"dependencies":{"foo\\u0000bar":"1"}}' }],
+        skipped: [],
+      },
+      { owner: 'fixture', repo: 'review' },
+    );
+    expect(out.manifests[0]!.dependencies).toEqual([
+      { name: 'foo\u0000bar', section: 'dependencies', spec: '1', line: 1 },
+    ]);
+  });
+
   it('summarizes requirements and simple go.mod files', () => {
     const out = build({
       'requirements.txt': '# web\nDjango[argon2]>=5.0,<6 ; python_version >= "3.10"\nrequests  # http\n',
@@ -414,6 +428,20 @@ describe('links and pairing', () => {
     });
     expect(chunkPaths(out, packet(out, 'p:src/a.ts')!.context)).toEqual(['src/neighbour.ts']);
     expect(chunkPaths(out, packet(out, 'p:lib/a.ts')!.context)).toEqual(['lib/neighbour.ts']);
+  });
+
+  it('resolves imports of the repository root but not above it', () => {
+    const out = build({
+      'index.ts': 'export const x = 1;',
+      'src/app.ts': "import { x } from '../';",
+      'main.ts': "import { x } from './';",
+      'src/escape.ts': "import { x } from '../../';",
+    });
+    expect(chunkPaths(out, packet(out, 'p:src/app.ts')!.context)).toEqual(['index.ts']);
+    expect(chunkPaths(out, packet(out, 'p:main.ts')!.context)).toEqual(['index.ts']);
+    expect(packet(out, 'p:src/escape.ts')!.context).toEqual([]);
+    // Two importers give index.ts the highest fan-in, so its packet comes first.
+    expect(out.packets[0]!.id).toBe('p:index.ts');
   });
 });
 

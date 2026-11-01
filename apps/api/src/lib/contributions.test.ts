@@ -94,6 +94,10 @@ describe('collectContributions', () => {
       { sha: 'root', parents: 0 },
     ]);
     const out = await run(octokit);
+    expect(rest.repos.listCommits).toHaveBeenCalledTimes(1);
+    expect(rest.repos.listCommits).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: 'octo', repo: 'demo', sha: 'head', page: 1 }),
+    );
     expect(rest.repos.getCommit.mock.calls.map(([a]) => a.ref)).toEqual(['mine', 'root']);
     expect([...out.details.keys()]).toEqual(['mine', 'root']);
     expect(out.commits).toHaveLength(4);
@@ -146,10 +150,26 @@ describe('collectContributions', () => {
     expect(rest.pulls.listCommits).not.toHaveBeenCalled();
   });
 
+  it('checks only the merged PR when open and merged PRs both match the SHA', async () => {
+    const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
+    rest.repos.listPullRequestsAssociatedWithCommit.mockResolvedValue({
+      data: [
+        { number: 7, merge_commit_sha: 'a', merged_at: null },
+        { number: 8, merge_commit_sha: 'a', merged_at: '2026-01-01T00:00:00Z' },
+      ],
+    });
+    rest.pulls.listCommits.mockResolvedValue({ data: [apiCommit({ sha: 'orig' })] });
+    const out = await run(octokit);
+    expect(rest.pulls.listCommits).toHaveBeenCalledTimes(1);
+    expect(rest.pulls.listCommits).toHaveBeenCalledWith(expect.objectContaining({ pull_number: 8 }));
+    expect(out.prLookups.get('a')).toMatchObject({ landing: 'landing', prNumber: 8 });
+  });
+
   it.each([
     ['a full associated-PR page', 'full'],
     ['a failed associated-PR lookup', 'lookup'],
     ['a failed PR commit list', 'commits'],
+    ['an unexpectedly empty PR commit list', 'empty'],
     ['250 PR commits', '250'],
   ])('leaves the landing unknown after %s', async (_, mode) => {
     const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
@@ -160,6 +180,7 @@ describe('collectContributions', () => {
     });
     rest.pulls.listCommits.mockImplementation(async ({ page }) => {
       if (mode === 'commits') throw httpError(500);
+      if (mode === 'empty') return { data: [] };
       const count = Math.min(100, 250 - (page - 1) * 100);
       return { data: Array.from({ length: count }, (_, i) => apiCommit({ sha: `o${page}-${i}` })) };
     });

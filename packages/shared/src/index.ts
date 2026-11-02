@@ -30,10 +30,69 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 // ---- Skill assessments and matching ----
 
 export { SKILL_CATALOGUE, SKILL_IDS } from './skill-catalogue.js';
-export type { CatalogueCategory, CatalogueSkill } from './skill-catalogue.js';
+export type { CatalogueCategory, CatalogueSkill, LevelCriteria } from './skill-catalogue.js';
 
 export const SkillIdSchema = z.enum(SKILL_IDS);
 export const SkillLevelSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+
+const LevelCriteriaSchema = z.object({
+  requires: z.string().min(1),
+  examples: z.string().min(1).optional(),
+});
+
+/** The one skill standard that Muse and both benchmark evaluators receive. */
+export const SkillCatalogueSchema = z.object({
+  id: z.string(),
+  version: z.number().int().positive(),
+  provenance: z.string(),
+  supportingTags: z.string(),
+  categories: z.array(z.object({ id: z.string(), name: z.string() })),
+  skills: z.array(
+    z.object({
+      id: SkillIdSchema,
+      name: z.string(),
+      categoryId: z.string(),
+      definition: z.string(),
+      levels: z.object({ 1: LevelCriteriaSchema, 2: LevelCriteriaSchema, 3: LevelCriteriaSchema }),
+    }),
+  ),
+});
+
+/** 0 means not demonstrated in the reviewed evidence. */
+export const MarkerLevelSchema = z.number().int().min(0).max(3);
+
+/**
+ * One evaluator's decision on one marker for one benchmark packet: the level it expects from the
+ * evidence, the level Muse returned and whether they agree.
+ */
+export const MarkerDecisionSchema = z.object({
+  skill_id: SkillIdSchema,
+  expected_level: MarkerLevelSchema,
+  muse_level: MarkerLevelSchema,
+  agrees: z.boolean(),
+  reason: z.string(),
+  evidence_refs: z.array(z.string()),
+});
+export type MarkerDecision = z.infer<typeof MarkerDecisionSchema>;
+
+/** A complete review of one packet: exactly one decision for every catalogue marker. */
+export const MarkerReviewSchema = z
+  .object({ id: z.string(), markers: z.array(MarkerDecisionSchema) })
+  .superRefine((review, ctx) => {
+    const seen = new Set(review.markers.map((m) => m.skill_id));
+    if (seen.size !== review.markers.length || seen.size !== SKILL_IDS.length) {
+      ctx.addIssue({ code: 'custom', message: 'Every marker must appear exactly once' });
+    }
+    for (const m of review.markers) {
+      if (m.agrees !== (m.expected_level === m.muse_level)) {
+        ctx.addIssue({ code: 'custom', message: `${m.skill_id}: agrees contradicts the levels` });
+      }
+      if (m.expected_level > 0 && m.evidence_refs.length === 0) {
+        ctx.addIssue({ code: 'custom', message: `${m.skill_id}: a positive level needs evidence` });
+      }
+    }
+  });
+export type MarkerReview = z.infer<typeof MarkerReviewSchema>;
 export const ConfidenceSchema = z.enum(['low', 'medium', 'high']);
 export const PrioritySchema = z.number().int().min(0).max(3);
 export const CatalogueRefSchema = z.object({

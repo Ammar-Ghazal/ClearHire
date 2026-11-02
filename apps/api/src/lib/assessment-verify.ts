@@ -103,14 +103,12 @@ export function verifyCandidate(
   const skills: CandidateAssessment['skills'] = [];
   const unsupportedSkills: CandidateAssessment['unsupportedSkills'] = [];
   for (const s of output.skills) {
-    const invalid = s.evidence
-      .filter((e) => items.get(e.ref)?.kind !== 'attributed')
-      .map((e) => e.ref);
-    if (invalid.length > 0 || s.evidence.length === 0) {
+    const invalid = s.evidence_refs.filter((ref) => items.get(ref)?.kind !== 'attributed');
+    if (invalid.length > 0 || s.evidence_refs.length === 0) {
       unsupportedSkills.push({ skillId: s.skill_id, level: s.level, invalidRefs: invalid });
       continue;
     }
-    const cited = s.evidence.map((e) => items.get(e.ref)!);
+    const cited = s.evidence_refs.map((ref) => items.get(ref)!);
     const limitations = new Set<
       CandidateAssessment['skills'][number]['attributionLimitations'][number]
     >();
@@ -127,9 +125,9 @@ export function verifyCandidate(
       skillId: s.skill_id,
       level: s.level,
       confidence: s.confidence,
-      rationale: s.rationale,
+      rationale: s.justification,
       supportingTags: s.supporting_tags,
-      evidence: s.evidence.map((e) => renderRef(items.get(e.ref)!, e.note)),
+      evidence: s.evidence_refs.map((ref) => renderRef(items.get(ref)!, null)),
       attributionLimitations: [...limitations].sort(),
     });
   }

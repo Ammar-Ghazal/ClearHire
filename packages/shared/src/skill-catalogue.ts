@@ -1,8 +1,16 @@
 // ClearHire's custom skill catalogue: one shared vocabulary for candidate analysis, job analysis and
 // matching. Skill IDs are copied from the frozen data/skills/clearhire-skills-v1.json and must never
 // change meaning or be reused. Any wording change bumps `version`, which invalidates cached analyses.
+// Each level states what it requires; examples only illustrate it and never decide a level.
 
 export type SkillLevel = 1 | 2 | 3;
+
+export interface LevelCriteria {
+  /** What the evidence must show. */
+  requires: string;
+  /** Illustrations only: never required, never sufficient on their own. */
+  examples?: string;
+}
 
 export interface CatalogueSkill {
   id: string;
@@ -10,7 +18,7 @@ export interface CatalogueSkill {
   categoryId: string;
   definition: string;
   /** What attributable code must show for each level; 1 = used, 2 = solid, 3 = advanced. */
-  levels: Record<SkillLevel, string>;
+  levels: Record<SkillLevel, LevelCriteria>;
 }
 
 export interface CatalogueCategory {
@@ -18,7 +26,12 @@ export interface CatalogueCategory {
   name: string;
 }
 
-type Row = [id: string, name: string, definition: string, l1: string, l2: string, l3: string];
+/** A level is its requirement alone, or [requirement, examples]. */
+type Level = string | [requires: string, examples: string];
+type Row = [id: string, name: string, definition: string, l1: Level, l2: Level, l3: Level];
+
+const criteria = (level: Level): LevelCriteria =>
+  typeof level === 'string' ? { requires: level } : { requires: level[0], examples: level[1] };
 
 const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
   {
@@ -29,7 +42,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'data-structures',
         'Data structures',
         'Choosing and implementing collections and structures that fit how data is accessed and changed.',
-        'Uses built-in collections such as maps, sets or queues appropriately for the task.',
+        [
+          'Chooses a collection deliberately for how its data is accessed; incidental use of lists, dictionaries or arrays does not count.',
+          'A set for membership tests, a map for keyed lookup or a queue for ordered work.',
+        ],
         'Selects or builds structures to fit access patterns, handling empty, duplicate and boundary cases.',
         'Designs or implements a non-trivial structure, such as a trie, heap, graph or index, with justified trade-offs.',
       ],
@@ -37,7 +53,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'algorithms',
         'Algorithms',
         'Implementing step-by-step procedures such as searching, sorting, traversal and dynamic programming.',
-        'Implements a straightforward algorithm such as a search, filter or simple traversal correctly.',
+        [
+          'Implements a procedure such as a search, traversal, sort or matching routine by hand; library calls and simple loops do not count.',
+          'Binary search, graph traversal or a custom merge.',
+        ],
         'Implements a standard algorithm with correct edge-case handling and tests or clear invariants.',
         'Adapts or designs an algorithm for a demanding constraint, such as scale, streaming input or optimality.',
       ],
@@ -53,7 +72,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'code-organization-and-modularity',
         'Code organization and modularity',
         'Structuring code into cohesive modules with clear boundaries and dependencies.',
-        'Splits code into functions or files with recognisable responsibilities.',
+        'Separates distinct responsibilities into named functions, modules or files so each unit has one recognisable purpose; code merely split across files does not count.',
         'Defines modules with narrow interfaces, contained side effects and dependencies that flow one way.',
         'Structures a substantial codebase so components can change independently, with enforced boundaries.',
       ],
@@ -61,7 +80,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'object-oriented-design',
         'Object-oriented design',
         'Modelling behaviour with classes, interfaces, encapsulation and polymorphism.',
-        'Defines classes that group related state and behaviour.',
+        'Defines classes that encapsulate related state together with behaviour that operates on it; data-only classes and framework boilerplate do not count.',
         'Uses encapsulation and interfaces or polymorphism to isolate variation behind stable contracts.',
         'Designs a class hierarchy or object model that absorbs new requirements without widespread change.',
       ],
@@ -69,7 +88,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'functional-programming',
         'Functional programming',
         'Using pure functions, immutability, composition and higher-order functions.',
-        'Uses map, filter, reduce or similar higher-order functions in place of manual loops.',
+        [
+          'Deliberately expresses logic with higher-order functions, closures or immutable transformations; a single incidental map or filter does not count.',
+          'Function composition, reducers or pipelines of transformations.',
+        ],
         'Structures logic as composable pure functions with immutable data and isolated side effects.',
         'Applies functional abstractions, such as algebraic types or effect isolation, to make complex logic verifiable.',
       ],
@@ -77,7 +99,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'error-handling',
         'Error handling',
         'Detecting, propagating and recovering from failures without losing information or safety.',
-        'Catches and reports errors at an appropriate point instead of ignoring them.',
+        'Catches or checks errors at a deliberate point and reports or handles them; empty catches and bare re-raises do not count.',
         'Uses typed or classified errors, preserves context, cleans up resources and avoids leaking internals.',
         'Designs failure handling across components, including partial failure, retries and recovery semantics.',
       ],
@@ -93,7 +115,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'memory-management',
         'Memory management',
         'Controlling allocation, ownership and lifetime of memory and other resources.',
-        'Releases resources explicitly or with language constructs such as RAII, using or defer.',
+        [
+          'Releases memory or other resources explicitly or with language constructs.',
+          'RAII, context managers, using, defer or exit stacks.',
+        ],
         'Manages ownership and lifetimes to prevent leaks, copies or dangling references in non-trivial code.',
         'Implements custom allocation, pooling or zero-copy strategies with evidence of correctness and benefit.',
       ],
@@ -115,9 +140,15 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'api-design',
         'API design',
         'Designing interfaces that are consistent, predictable and hard to misuse.',
-        'Exposes functions or endpoints with clear names and parameters.',
-        'Designs consistent request and response shapes, validation, error contracts and pagination.',
-        'Designs an API for evolution and many consumers, with explicit compatibility and safety guarantees.',
+        'Exposes functions or endpoints whose names, parameters and return values form a deliberate public interface.',
+        [
+          'Keeps request and response shapes consistent across operations, with input validation or structured error responses.',
+          'Pagination, filtering conventions, idempotency keys or typed client contracts.',
+        ],
+        [
+          'Designs an API for evolution and many consumers, with explicit versioning or compatibility guarantees.',
+          'Deprecation policies, backward-compatible schema evolution or documented rate limits.',
+        ],
       ],
       [
         'domain-modeling',
@@ -147,9 +178,15 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'unit-testing',
         'Unit testing',
         'Writing focused automated tests for individual functions or components.',
-        'Writes unit tests that check expected outputs for typical inputs.',
-        'Tests edge cases and failure paths, isolates dependencies and keeps tests deterministic.',
-        'Builds a unit test suite that drives design, such as test seams, fakes and meaningful coverage of risk.',
+        'Writes automated tests that assert the expected outputs of individual functions or components.',
+        [
+          'Tests edge cases or failure paths as well as typical inputs, with deterministic tests that isolate the unit from any external dependencies.',
+          'Fakes or mocks, parameterised cases, fixed clocks or seeded randomness.',
+        ],
+        [
+          'Structures a unit test suite around risk, with deliberate test seams or reusable test doubles across many units.',
+          'Dependency injection for testability, shared fixtures or builders, tests concentrated on risky logic.',
+        ],
       ],
       [
         'integration-testing',
@@ -179,7 +216,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'static-analysis-and-type-safety',
         'Static analysis and type safety',
         'Using type systems, linters and analysers to prevent defects before runtime.',
-        'Uses static types or a linter in the project.',
+        [
+          'Uses static types or a configured linter or type checker deliberately across a module; a few incidental annotations do not count.',
+          'Typed signatures throughout a module, a strict type-checker setting or a lint configuration.',
+        ],
         'Models data precisely with types, narrows unknown input and keeps strict checks passing.',
         'Encodes invariants in the type system or custom analysis rules so invalid code fails to compile.',
       ],
@@ -265,8 +305,11 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'frontend-performance',
         'Frontend performance',
         'Making web interfaces load and respond quickly.',
-        'Applies a basic optimisation such as lazy loading or memoisation.',
-        'Reduces bundle size, render work or network cost with a targeted, measured change.',
+        [
+          'Applies a targeted optimisation to loading or rendering.',
+          'Lazy loading, dynamic imports or memoisation.',
+        ],
+        'Reduces bundle size, render work or network cost with a targeted change backed by a measurement, budget or benchmark.',
         'Diagnoses and improves performance with profiling, budgets or architectural changes.',
       ],
       [
@@ -327,7 +370,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'event-driven-application-development',
         'Event-driven application development',
         'Building applications that react to events or messages.',
-        'Publishes or consumes events or webhooks.',
+        [
+          'Publishes or consumes messages, events or webhooks between decoupled components; UI event callbacks alone do not count.',
+          'Message queues, pub/sub topics, real-time channels or webhook handlers.',
+        ],
         'Handles event ordering, duplication and schema validation in consumers.',
         'Designs event flows with delivery guarantees, replay or outbox patterns and versioned contracts.',
       ],
@@ -467,7 +513,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'service-decomposition',
         'Service decomposition',
         'Dividing a system into services or bounded components with clear ownership.',
-        'Separates a system into a few deployable or logical services.',
+        'Separates a system into a few deployable or logical services, shown by separate manifests, entry points or service contracts.',
         'Draws service boundaries around cohesive responsibilities with explicit contracts.',
         'Decomposes a system to manage coupling, data ownership and independent evolution.',
       ],
@@ -483,9 +529,15 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'fault-tolerance',
         'Fault tolerance',
         'Keeping systems working correctly when components fail.',
-        'Handles a dependency failure without crashing.',
-        'Applies retries with backoff, circuit breaking, fallbacks or graceful degradation.',
-        'Designs recovery from crashes and partial failure, verified by tests or fault injection.',
+        'Handles a failing dependency or operation so the system keeps running instead of crashing.',
+        [
+          'Applies at least one deliberate resilience mechanism with bounded behaviour.',
+          'Limited retries with backoff, a timeout with fallback, circuit breaking or graceful degradation.',
+        ],
+        [
+          'Designs recovery from crashes or partial failure across components, verified by tests or fault injection.',
+          'Retry budgets, idempotent replays, crash-recovery tests or chaos testing.',
+        ],
       ],
       [
         'scalability-and-capacity-planning',
@@ -493,7 +545,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'Designing systems to handle growth in load and data.',
         'Avoids an obvious bottleneck for expected load.',
         'Applies pagination, batching, pooling or horizontal scaling to handle larger workloads.',
-        'Plans capacity with measurements or models and designs scaling paths for demanding load.',
+        'Plans capacity with measurements or load models and designs scaling paths for demanding load; autoscaling configuration alone does not count.',
       ],
       [
         'system-performance-profiling',
@@ -546,16 +598,22 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'Containerization',
         'Packaging applications and dependencies into containers.',
         'Writes a working Dockerfile or container definition.',
-        'Builds small, reproducible images with multi-stage builds, non-root users and pinned versions.',
+        'Builds small, reproducible images with all of: a multi-stage build, a non-root user and a pinned base image for the final stage.',
         'Designs container builds for security, caching and multiple environments at scale.',
       ],
       [
         'container-orchestration',
         'Container orchestration',
         'Running containers with schedulers such as Kubernetes or ECS.',
-        'Defines a basic deployment or compose configuration.',
-        'Configures health checks, resources, scaling and configuration management.',
-        'Designs orchestration for resilience, rollout strategies and multi-service operation.',
+        'Defines a deployment, service or compose configuration that runs one or more containers.',
+        [
+          'Configures at least two operational concerns for orchestrated workloads: health checks, resource requests or limits, scaling rules, or externalised configuration.',
+          'Readiness and liveness probes, autoscalers, ConfigMaps or compose healthchecks.',
+        ],
+        [
+          'Designs orchestration for resilient multi-service operation with a controlled rollout strategy.',
+          'Rolling or canary deployments, disruption budgets, affinity rules or charts shared across environments.',
+        ],
       ],
       [
         'infrastructure-as-code',
@@ -602,7 +660,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'Incident diagnosis and recovery',
         'Responding to, diagnosing and recovering from production incidents.',
         'Fixes an operational failure in a deployed system.',
-        'Provides runbooks, health checks or recovery procedures for known failure modes.',
+        [
+          'Provides runbooks, health checks or recovery procedures for known failure modes; operational documentation counts.',
+          'A runbook for a known outage, a readiness check or a restore procedure.',
+        ],
         'Builds tooling or processes that shorten diagnosis and recovery across incidents.',
       ],
       [
@@ -617,7 +678,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'infrastructure-cost-optimization',
         'Infrastructure cost optimization',
         'Reducing infrastructure and service spend without harming reliability.',
-        'Chooses a cheaper configuration or tier deliberately.',
+        'Chooses a cheaper configuration or tier deliberately in configuration or code; a written policy alone does not count.',
         'Applies limits, rightsizing, caching or scheduling to reduce measurable cost.',
         'Builds cost controls, such as budgets, attribution and spend caps, into system design.',
       ],
@@ -671,7 +732,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'natural-language-processing',
         'Natural language processing',
         'Processing and modelling human language text.',
-        'Uses an NLP library for tasks such as tokenisation or classification.',
+        [
+          'Processes or models human-language text, including with general machine-learning libraries.',
+          'Tokenisation, TF-IDF features or text classification.',
+        ],
         'Builds NLP pipelines or models with appropriate preprocessing and evaluation.',
         'Implements or adapts language models or methods for demanding tasks.',
       ],
@@ -679,7 +743,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'computer-vision',
         'Computer vision',
         'Processing and modelling images or video.',
-        'Uses a vision library for image processing or inference.',
+        'Performs image or video processing or inference, including with existing vision libraries or pretrained models.',
         'Builds vision pipelines or models with augmentation and evaluation.',
         'Implements or adapts vision methods for demanding accuracy or performance constraints.',
       ],
@@ -735,7 +799,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'Storing, distributing and rotating credentials and keys safely.',
         'Reads secrets from configuration rather than hard-coding them.',
         'Encrypts stored credentials, limits exposure in logs and scopes access.',
-        'Designs key rotation, envelope encryption or managed secret distribution.',
+        [
+          'Designs key rotation, envelope encryption or managed secret distribution.',
+          'Rotating key sets, KMS envelope encryption or a secrets manager.',
+        ],
       ],
       [
         'cryptographic-implementation-and-integration',
@@ -750,14 +817,20 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'Network security',
         'Protecting communication and network-facing services.',
         'Uses TLS or restricts network access for a service.',
-        'Configures CORS, firewalls, rate limits or secure transport deliberately.',
+        [
+          'Configures transport or network-level protections deliberately; request-forgery checks belong to secure input handling.',
+          'CORS policy, firewall rules, rate limits or enforced TLS.',
+        ],
         'Designs network defences, such as segmentation, zero-trust access or DDoS resilience.',
       ],
       [
         'application-security-testing',
         'Application security testing',
         'Finding vulnerabilities through security-focused tests and analysis.',
-        'Adds a test for a security-relevant behaviour.',
+        [
+          'Adds a test whose purpose is a security property.',
+          'Escaping or autoescape tests, access-denied tests or malicious-input rejection tests.',
+        ],
         'Tests authorisation, injection or abuse cases systematically.',
         'Integrates security testing, such as fuzzing or SAST and DAST, into development workflows.',
       ],
@@ -765,7 +838,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'dependency-and-supply-chain-security',
         'Dependency and supply-chain security',
         'Managing risk from third-party code, packages and build pipelines.',
-        'Pins or updates dependencies.',
+        [
+          'Pins dependency versions or configures automated dependency updates.',
+          'Exact version pins, Dependabot or Renovate configuration.',
+        ],
         'Uses lockfiles, automated vulnerability checks and minimal dependencies.',
         'Hardens the supply chain with provenance, signing or isolated, reproducible builds.',
       ],
@@ -803,7 +879,10 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
         'native-mobile-development',
         'Native mobile development',
         'Building apps with platform SDKs such as Swift, Kotlin or Java.',
-        'Builds screens and interactions in a native mobile app.',
+        [
+          'Builds screens and interactions with a native platform SDK or toolkit.',
+          'Jetpack Compose, Android Views, SwiftUI or UIKit.',
+        ],
         'Uses platform architecture patterns, navigation and data handling appropriately.',
         'Builds complex native features using platform APIs with performance and reliability.',
       ],
@@ -885,7 +964,7 @@ const CATEGORIES: { id: string; name: string; skills: Row[] }[] = [
 
 export const SKILL_CATALOGUE = {
   id: 'clearhire-skills',
-  version: 2,
+  version: 3,
   provenance: 'ClearHire custom catalogue; not an ESCO standard.',
   supportingTags:
     'Languages, frameworks, platforms and tools are supporting tags, never standalone capability evidence.',
@@ -896,7 +975,7 @@ export const SKILL_CATALOGUE = {
       name,
       categoryId: category.id,
       definition,
-      levels: { 1: l1, 2: l2, 3: l3 },
+      levels: { 1: criteria(l1), 2: criteria(l2), 3: criteria(l3) },
     })),
   ),
 } as const;

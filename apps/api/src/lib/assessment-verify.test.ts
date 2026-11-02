@@ -23,9 +23,9 @@ const skill = (
   skill_id,
   level,
   confidence: 'medium',
-  rationale: 'Shown',
+  justification: 'Shown',
   supporting_tags: ['TypeScript'],
-  evidence: refs.map((ref) => ({ ref, note: 'Here' })),
+  evidence_refs: refs,
 });
 
 function output(overrides: Partial<CandidateOutput> = {}): CandidateOutput {
@@ -70,8 +70,9 @@ describe('verifyCandidate', () => {
       startLine: item.startLine,
       endLine: item.endLine,
       sha256: item.sha256,
-      note: 'Here',
+      note: null,
     });
+    expect(result.skills[0]!.rationale).toBe('Shown');
     expect(result.unsupportedSkills).toEqual([
       { skillId: 'algorithms', level: 3, invalidRefs: ['a99'] },
     ]);

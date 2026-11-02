@@ -1,6 +1,7 @@
 import type { Health, Me } from '@clearhire/shared';
 import { useEffect, useState } from 'react';
 import { getHealth, getMe, loginUrl, logout } from './api';
+import { DemoScreen } from './DemoScreen';
 
 const AUTH_ERRORS: Record<string, string> = {
   access_denied: 'You cancelled the GitHub sign-in.',
@@ -59,6 +60,9 @@ export function App() {
             <SignedIn me={me} onLogout={handleLogout} />
           )}
         </section>
+
+        <h2 className="mb-3 mt-10 text-xl font-semibold tracking-tight">Demo pipeline</h2>
+        <DemoScreen isOperator={me?.isDemoOperator ?? false} />
       </div>
     </main>
   );

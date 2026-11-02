@@ -11,3 +11,4 @@ data/demo/results/
 scripts/render-skill-benchmark.py
 apps/api/scripts/benchmark-skills.ts
 apps/api/scripts/review-benchmark.ts
+data/demo/resumes/*.pdf

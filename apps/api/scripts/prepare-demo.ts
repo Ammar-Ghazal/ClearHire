@@ -1,25 +1,22 @@
 // Prepares demo inputs from saved fixtures. Calls GitHub only; never calls Muse.
-//   pnpm --filter @clearhire/api exec tsx scripts/prepare-demo.ts candidate (--id <curated id> | --login <login>)
-//     --repo <owner/name> [--repo ...] [--resume <file>] --data-use approved_public_demo|restricted
+//   pnpm --filter @clearhire/api exec tsx scripts/prepare-demo.ts candidate (--id <curated key> | --login <login>)
+//     [--repo <owner/name> ...] [--resume <file>] --data-use approved_public_demo|restricted
 //   pnpm --filter @clearhire/api exec tsx scripts/prepare-demo.ts jobs --data-use approved_public_demo|restricted
-import { Octokit } from '@octokit/rest';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
-import { env } from '../src/env.js';
-import { collectContributions } from '../src/lib/contributions.js';
+import type { PreparedJob } from '../src/lib/assessments.js';
 import {
   serializePreparedCandidate,
   type PreparedCandidate,
-  type PreparedRepo,
-  type UnavailableRepo,
 } from '../src/lib/candidate-evidence.js';
-import { ingestRepo, toIngestError } from '../src/lib/ingest.js';
-import type { PreparedJob } from '../src/lib/assessments.js';
+import { readDemoFiles } from '../src/lib/demo-import.js';
+import { demoOctokit, prepareRepo, type SelectedRepo } from '../src/lib/demo-prepare.js';
 
 const root = (path: string) => new URL(`../../../${path}`, import.meta.url);
-const CURATED = root('data/demo/public-developers/curated-profiles.json');
 const PREPARED = root('data/demo/prepared/');
+const demoData = () => readDemoFiles(fileURLToPath(root(''))).data;
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -40,94 +37,50 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const loginFromUrl = (url: unknown) =>
-  typeof url === 'string' ? /github\.com\/([^/?#]+)/.exec(url)?.[1] : undefined;
-
-/** The curated collection is the only candidate source; its records keep their stable IDs. */
-function curatedProfile(id: string) {
-  if (!existsSync(CURATED)) {
-    fail(
-      'curated-profiles.json is missing: restore it, or prepare with --login and explicit --repo values',
-    );
-  }
-  const parsed = z
-    .object({ profiles: z.array(z.object({ id: z.string().optional() }).passthrough()) })
-    .safeParse(JSON.parse(readFileSync(CURATED, 'utf8')));
-  if (!parsed.success) fail('curated-profiles.json does not contain a profiles array');
-  const profile = parsed.data.profiles.find(
-    (p) => p.id === id || (p.id === undefined && loginFromUrl(p.github_url) === id),
-  );
-  if (!profile) fail(`No curated profile with id ${id}`);
-  const login = loginFromUrl(profile.github_url);
-  if (!login) fail(`Curated profile ${id} has no GitHub URL`);
-  // Saved selections are pinned to the commit recorded during research.
-  const selections = z
-    .array(
-      z
-        .object({
-          full_name: z.string(),
-          pinned_commit_sha: z.string().optional(),
-          commit_sha: z.string().optional(),
-        })
-        .passthrough(),
-    )
-    .catch([])
-    .parse(profile.selected_repositories);
-  const pins = new Map(
-    selections.flatMap((r) => {
-      const sha = r.pinned_commit_sha ?? r.commit_sha;
-      return sha ? [[r.full_name.toLowerCase(), sha] as const] : [];
-    }),
-  );
+/** Curated profiles keep their established keys and pinned selections (validated on import). */
+function curatedProfile(key: string) {
+  const candidate = demoData().candidates.find((c) => c.key === key);
+  if (!candidate) fail(`No curated profile with key ${key}`);
   return {
-    key: profile.id ?? login,
-    login,
-    pins,
-    source: { file: 'curated-profiles.json', profile },
+    key: candidate.key,
+    login: candidate.githubLogin,
+    selections: candidate.repositories,
+    source: { file: 'curated-profiles.json', profile: candidate.raw },
   };
 }
 
 async function prepareCandidate() {
-  const octokit = new Octokit(env.GITHUB_DEMO_TOKEN ? { auth: env.GITHUB_DEMO_TOKEN } : {});
+  const octokit = demoOctokit();
   const chosen = values.id
     ? curatedProfile(values.id)
     : values.login
-      ? {
-          key: values.login,
-          login: values.login,
-          pins: new Map<string, string>(),
-          source: { manual: true },
-        }
+      ? { key: values.login, login: values.login, selections: [], source: { manual: true } }
       : fail('Pass --id or --login');
-  const repos = values.repo ?? fail('Pass at least one --repo owner/name');
+  // Explicit --repo values override the saved selection; saved pins still apply.
+  const selections: SelectedRepo[] = values.repo
+    ? values.repo.map((full) => {
+        const [owner, repo] = full.split('/');
+        if (!owner || !repo) fail(`Invalid repository: ${full}`);
+        const saved = chosen.selections.find(
+          (s) => `${s.owner}/${s.repo}`.toLowerCase() === full.toLowerCase(),
+        );
+        return { owner, repo, pinnedSha: saved?.pinnedSha ?? null };
+      })
+    : chosen.selections;
+  if (selections.length === 0) fail('Pass at least one --repo owner/name');
 
   const { data: user } = await octokit.rest.users.getByUsername({ username: chosen.login });
   const identity = { githubUserId: user.id, login: user.login, verifiedEmails: [] };
   const prepared: PreparedCandidate['repos'] = [];
-  for (const full of repos) {
-    const [owner, repo] = full.split('/');
-    if (!owner || !repo) fail(`Invalid repository: ${full}`);
-    try {
-      const ref = chosen.pins.get(full.toLowerCase());
-      const snapshot = await ingestRepo(octokit, { owner, repo, ...(ref && { ref }) });
-      const collected = await collectContributions(
-        octokit,
-        { owner, repo, commitSha: snapshot.commitSha },
-        identity,
-      );
-      prepared.push({
-        owner,
-        repo,
-        collectedFor: identity.githubUserId,
-        snapshot,
-        collected,
-      } satisfies PreparedRepo);
-      console.log(`${full}: ${snapshot.files.length} files at ${snapshot.commitSha.slice(0, 7)}`);
-    } catch (err) {
-      const reason = toIngestError(err, 'prepare', new AbortController().signal).code;
-      prepared.push({ owner, repo, unavailable: reason } satisfies UnavailableRepo);
-      console.log(`${full}: unavailable (${reason})`);
-    }
+  for (const selection of selections) {
+    const entry = await prepareRepo(octokit, selection, identity);
+    prepared.push(entry);
+    const name = `${selection.owner}/${selection.repo}`;
+    console.log(
+      'unavailable' in entry
+        ? `${name}: unavailable (${entry.unavailable})`
+        : `${name}: ${entry.snapshot.files.length} files at ${entry.snapshot.commitSha.slice(0, 7)}`,
+    );
   }
 
   const resume = values.resume ? { text: readFileSync(values.resume, 'utf8') } : null;
@@ -144,48 +97,18 @@ async function prepareCandidate() {
   console.log(`Wrote ${out.pathname}`);
 }
 
-const EmployerSchema = z.object({ id: z.string(), name: z.string() }).passthrough();
-const JobSchema = z
-  .object({
-    id: z.string(),
-    employer_id: z.string(),
-    title: z.string(),
-    requirements_summary: z.array(z.string()),
-    source_url: z.string(),
-    scenario: z.string(),
-  })
-  .passthrough();
-
-/** Uses a saved full description when one exists; otherwise the abbreviated fixture summary. */
+/** Same job text as the importer: a saved full description, otherwise the abbreviated summary. */
 function prepareJobs() {
-  const employers = z
-    .array(EmployerSchema)
-    .parse(JSON.parse(readFileSync(root('data/demo/employers/employers.json'), 'utf8')));
-  const jobs = z
-    .array(JobSchema)
-    .parse(JSON.parse(readFileSync(root('data/demo/employers/jobs.json'), 'utf8')));
-  const byId = new Map(employers.map((e) => [e.id, e]));
   mkdirSync(new URL('jobs/', PREPARED), { recursive: true });
-  for (const job of jobs) {
-    const employer =
-      byId.get(job.employer_id) ?? fail(`${job.id}: unknown employer ${job.employer_id}`);
-    const descriptionFile = root(`data/demo/employers/descriptions/${job.id}.txt`);
-    const full = existsSync(descriptionFile);
-    const text = full
-      ? readFileSync(descriptionFile, 'utf8')
-      : [
-          `${job.title} at ${employer.name}`,
-          'Abbreviated research notes, not the full job description:',
-          ...job.requirements_summary,
-        ].join('\n');
+  for (const job of demoData().jobs) {
     const prepared: PreparedJob & { source: unknown } = {
       jobKey: job.id,
-      employerId: employer.id,
+      employerId: job.employerId,
       title: job.title,
-      text,
-      textSource: full ? 'full_description' : 'fixture_summary',
+      text: job.text,
+      textSource: job.textSource,
       dataUse: dataUse.data!,
-      source: { sourceUrl: job.source_url, scenario: job.scenario, employer: employer.name },
+      source: { sourceUrl: job.sourceUrl, scenario: job.scenario },
     };
     writeFileSync(new URL(`jobs/${job.id}.json`, PREPARED), JSON.stringify(prepared, null, 2));
     console.log(`${job.id}: ${prepared.textSource}`);

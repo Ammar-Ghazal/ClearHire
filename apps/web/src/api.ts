@@ -1,6 +1,24 @@
 // Thin client for the API. In development the base is /api (proxied by Vite);
 // in production set VITE_API_URL to the API's public URL.
-import { HealthSchema, MeSchema, type Health, type Me } from '@clearhire/shared';
+import {
+  AnalysisStartSchema,
+  ApiErrorSchema,
+  DemoCandidateListSchema,
+  DemoCandidateSchema,
+  DemoJobListSchema,
+  DemoJobSchema,
+  DemoMatchSchema,
+  HealthSchema,
+  MeSchema,
+  type AnalysisStart,
+  type DemoCandidate,
+  type DemoCandidateSummary,
+  type DemoJob,
+  type DemoJobSummary,
+  type DemoMatch,
+  type Health,
+  type Me,
+} from '@clearhire/shared';
 
 export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api';
 
@@ -26,3 +44,72 @@ export async function getMe(): Promise<Me | null> {
 export async function logout(): Promise<void> {
   await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
 }
+
+// ---- Demo screen ----
+
+/** Carries the API's error code so the screen can show it beside the action that failed. */
+export class ApiRequestError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+async function request<T>(
+  path: string,
+  schema: { parse: (value: unknown) => T },
+  init: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: init.method ?? 'GET',
+    credentials: 'include',
+    ...(init.body !== undefined && {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(init.body),
+    }),
+  });
+  const json: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const parsed = ApiErrorSchema.safeParse(json);
+    throw new ApiRequestError(parsed.success ? parsed.data.error.code : `http_${res.status}`);
+  }
+  return schema.parse(json);
+}
+
+const segment = encodeURIComponent;
+
+export const getDemoCandidates = (): Promise<DemoCandidateSummary[]> =>
+  request('/demo/candidates', DemoCandidateListSchema);
+
+export const getDemoCandidate = (key: string): Promise<DemoCandidate> =>
+  request(`/demo/candidates/${segment(key)}`, DemoCandidateSchema);
+
+export const getDemoJobs = (): Promise<DemoJobSummary[]> =>
+  request('/demo/jobs', DemoJobListSchema);
+
+export const getDemoJob = (id: string): Promise<DemoJob> =>
+  request(`/demo/jobs/${segment(id)}`, DemoJobSchema);
+
+export const getDemoMatch = (candidate: string, job: string): Promise<DemoMatch> =>
+  request(
+    `/demo/match?candidate=${segment(candidate)}&job=${segment(job)}`,
+    DemoMatchSchema,
+  );
+
+export const startCandidateAnalysis = (key: string, retry: boolean): Promise<AnalysisStart> =>
+  request(`/demo/candidates/${segment(key)}/analysis`, AnalysisStartSchema, {
+    method: 'POST',
+    body: { retry },
+  });
+
+export const startJobAnalysis = (id: string, retry: boolean): Promise<AnalysisStart> =>
+  request(`/demo/jobs/${segment(id)}/analysis`, AnalysisStartSchema, {
+    method: 'POST',
+    body: { retry },
+  });
+
+/** `null` resets the requirement to its suggested priority. */
+export const setJobPriority = (id: string, skillId: string, priority: number | null) =>
+  request(`/demo/jobs/${segment(id)}/priorities/${segment(skillId)}`, DemoJobSchema, {
+    method: 'PUT',
+    body: { priority },
+  });

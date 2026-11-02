@@ -19,6 +19,8 @@ export const MeSchema = z.object({
     installationId: z.number().int().nullable(),
     installUrl: z.string().url().nullable(),
   }),
+  /** Allowlisted operators may start demo analyses and change priorities. */
+  isDemoOperator: z.boolean(),
 });
 export type Me = z.infer<typeof MeSchema>;
 
@@ -301,3 +303,193 @@ export const MatchResultSchema = z.discriminatedUnion('status', [
   }),
 ]);
 export type MatchResult = z.infer<typeof MatchResultSchema>;
+
+// ---- Demo screen ----
+
+/** Run state of one demo subject, separate from whether its saved assessment is current. */
+export const RunStatusSchema = z.object({
+  status: z.enum(['idle', 'pending', 'failed']),
+  errorCode: z.string().nullable(),
+});
+export type RunStatus = z.infer<typeof RunStatusSchema>;
+
+/**
+ * Whether a saved assessment matches the subject's current inputs. Only `current` results are
+ * shown or scored; `outdated` means only results for older inputs or versions exist.
+ */
+export const FreshnessSchema = z.object({
+  state: z.enum([
+    'current',
+    'pending',
+    'failed',
+    'outdated',
+    'not_started',
+    'not_prepared',
+    'not_applicable',
+    'model_not_configured',
+    'input_error',
+  ]),
+  /** Saved status when current: complete, partial or no_attributed_evidence. */
+  assessmentStatus: z.enum(['complete', 'partial', 'no_attributed_evidence']).nullable(),
+  errorCode: z.string().nullable(),
+  completedAt: z.string().nullable(),
+});
+export type Freshness = z.infer<typeof FreshnessSchema>;
+
+export const ResumeInfoSchema = z.object({
+  status: z.enum(['none', 'extracted', 'needs_review']),
+  reviewReason: z.string().nullable(),
+  kind: z.enum(['original_public_resume', 'reconstructed_demo_resume']).nullable(),
+  limitedSource: z.boolean(),
+  sources: z.array(z.string()),
+  limitations: z.array(z.string()),
+  pages: z.number().int().nullable(),
+  /** The profile's resume link: provenance only, never fetched. */
+  resumeUrl: z.string().nullable(),
+  resumeType: z.string().nullable(),
+});
+
+export const DemoCandidateSummarySchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  githubUrl: z.string(),
+  githubLogin: z.string(),
+  organization: z.boolean(),
+  repositoryCount: z.number().int(),
+  resume: ResumeInfoSchema,
+  run: RunStatusSchema,
+});
+export type DemoCandidateSummary = z.infer<typeof DemoCandidateSummarySchema>;
+export const DemoCandidateListSchema = z.array(DemoCandidateSummarySchema);
+
+export const EvidenceLinkSchema = EvidenceRefSchema.pick({
+  path: true,
+  startLine: true,
+  endLine: true,
+  commitSha: true,
+  attribution: true,
+}).extend({ url: z.string() });
+
+const LinkedClaimSchema = z.object({ summary: z.string(), evidence: z.array(EvidenceLinkSchema) });
+
+export const RepositoryBreakdownSchema = z.object({
+  repo: z.string(),
+  url: z.string(),
+  pinnedSha: z.string().nullable(),
+  commitSha: z.string().nullable(),
+  state: z.enum([
+    'analyzed',
+    'not_described',
+    'no_attributed_evidence',
+    'unavailable',
+    'not_prepared',
+    'pending',
+    'failed',
+    'outdated',
+    'not_analyzed',
+  ]),
+  /** Unavailable or failure code; never an exception message. */
+  reason: z.string().nullable(),
+  functionality: z.array(LinkedClaimSchema),
+  quality: z.array(
+    z.object({
+      kind: z.enum(['strength', 'concern']),
+      observation: z.string(),
+      evidence: z.array(EvidenceLinkSchema),
+    }),
+  ),
+  limitations: z.array(z.string()),
+  contribution: LinkedClaimSchema.nullable(),
+  skills: z.array(
+    z.object({
+      skillId: SkillIdSchema,
+      name: z.string(),
+      level: SkillLevelSchema,
+      confidence: ConfidenceSchema,
+      rationale: z.string(),
+      /** `candidate_wide`: the level was assessed across several repositories. */
+      levelScope: z.enum(['repository', 'candidate_wide']),
+      attributionLimitations: z.array(AttributionLimitationSchema),
+      evidence: z.array(EvidenceLinkSchema),
+    }),
+  ),
+  /** File-level: identical files whose evidence is shown under another copy. */
+  duplicates: z.array(z.object({ path: z.string(), duplicateOf: z.string() })),
+  coverage: z.object({
+    sampled: z.boolean(),
+    omittedRanges: z.number().int(),
+    attributionGaps: z.array(
+      z.object({
+        reason: z.string(),
+        commitSha: z.string().nullable(),
+        path: z.string().nullable(),
+      }),
+    ),
+    limitations: z.array(z.string()),
+  }),
+});
+export type RepositoryBreakdown = z.infer<typeof RepositoryBreakdownSchema>;
+
+export const DemoCandidateSchema = DemoCandidateSummarySchema.extend({
+  verification: z.object({
+    identityMatchVerified: z.boolean().nullable(),
+    publicRepositoriesVerified: z.boolean().nullable(),
+    source: z.string().nullable(),
+    userSuppliedStatus: z.string().nullable(),
+  }),
+  freshness: FreshnessSchema,
+  /** Unavailable repositories whose failure was transient; an explicit retry re-fetches them. */
+  transientRepos: z.array(z.string()),
+  repositories: z.array(RepositoryBreakdownSchema),
+});
+export type DemoCandidate = z.infer<typeof DemoCandidateSchema>;
+
+export const DemoJobSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  employer: z.object({
+    id: z.string(),
+    name: z.string(),
+    url: z.string(),
+    description: z.string(),
+  }),
+  location: z.string().nullable(),
+  sourceUrl: z.string(),
+  sourceChecked: z.string().nullable(),
+  inScope: z.boolean(),
+  textSource: z.enum(['full_description', 'fixture_summary']),
+  run: RunStatusSchema,
+});
+export type DemoJobSummary = z.infer<typeof DemoJobSummarySchema>;
+export const DemoJobListSchema = z.array(DemoJobSummarySchema);
+
+export const DemoJobSchema = DemoJobSummarySchema.extend({
+  text: z.string(),
+  freshness: FreshnessSchema,
+  requirements: z.array(
+    JobRequirementSchema.pick({
+      skillId: true,
+      requiredLevel: true,
+      suggestedPriority: true,
+      referenceStatus: true,
+    }).extend({
+      name: z.string(),
+      priority: PrioritySchema,
+      prioritySource: z.enum(['override', 'suggested']),
+    }),
+  ),
+});
+export type DemoJob = z.infer<typeof DemoJobSchema>;
+
+/** Scored only from current assessments; missing or outdated analyses are never shown as 0%. */
+export const DemoMatchSchema = z.discriminatedUnion('availability', [
+  z.object({ availability: z.literal('available'), match: MatchResultSchema }),
+  z.object({
+    availability: z.literal('unavailable'),
+    reason: z.enum(['candidate_not_current', 'job_not_current', 'no_attributed_evidence']),
+  }),
+]);
+export type DemoMatch = z.infer<typeof DemoMatchSchema>;
+
+export const AnalysisStartSchema = z.object({ result: z.enum(['started', 'cached']) });
+export type AnalysisStart = z.infer<typeof AnalysisStartSchema>;

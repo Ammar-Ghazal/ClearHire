@@ -51,6 +51,8 @@ const EnvSchema = z.object({
   META_BASE_URL: z.string().url().default('https://api.meta.ai/v1'),
   META_DAILY_CAP_USD: z.coerce.number().positive().default(5),
   META_SUBJECT_CAP_USD: z.coerce.number().positive().default(1),
+  // Comma-separated GitHub logins allowed to start demo analyses and change priorities.
+  DEMO_OPERATOR_LOGINS: optional,
 }).refine((e) => !e.META_API_KEY || e.META_MODEL, {
   message: 'META_MODEL must be set explicitly when META_API_KEY is set',
   path: ['META_MODEL'],
@@ -77,3 +79,13 @@ export const githubConfigured = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIEN
 
 /** Muse calls need a key and an explicitly chosen model; nothing switches models automatically. */
 export const museConfigured = Boolean(env.META_API_KEY && env.META_MODEL);
+
+const demoOperators = new Set(
+  (env.DEMO_OPERATOR_LOGINS ?? '')
+    .split(',')
+    .map((l) => l.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+/** Unset or empty allowlist: nobody may start paid demo work. */
+export const isDemoOperator = (login: string) => demoOperators.has(login.toLowerCase());

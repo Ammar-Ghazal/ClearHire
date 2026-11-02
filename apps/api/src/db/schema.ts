@@ -1,5 +1,6 @@
-// Sign-in tables, plus the minimal Muse analysis store: assessments (cache, results and single-flight
-// lock in one row), per-attempt spend records, atomic budgets and employer priority overrides.
+// Sign-in tables, the minimal Muse analysis store (assessments: cache, results and single-flight
+// lock in one row; per-attempt spend records; atomic budgets; employer priority overrides) and the
+// imported demo fixtures, which never reference users.
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -161,3 +162,76 @@ export const jobPriorityOverrides = pgTable(
     check('job_priority_overrides_priority_range', sql`${t.priority} between 0 and 3`),
   ],
 );
+
+// ---- Demo fixtures (imported by scripts/import-demo.ts) ----
+
+/** One run per subject: `run_id` is the ownership token every worker write is conditional on. */
+const runColumns = {
+  runId: uuid('run_id'),
+  runStatus: text('run_status', { enum: ['idle', 'pending', 'failed'] }).notNull().default('idle'),
+  runError: text('run_error'),
+  runHeartbeatAt: timestamp('run_heartbeat_at', { withTimezone: true }),
+};
+
+export const demoEmployers = pgTable('demo_employers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  url: text('url').notNull(),
+  raw: jsonb('raw').notNull(),
+  recordSha256: text('record_sha256').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const demoJobs = pgTable('demo_jobs', {
+  id: text('id').primaryKey(),
+  employerId: text('employer_id')
+    .notNull()
+    .references(() => demoEmployers.id),
+  title: text('title').notNull(),
+  location: text('location'),
+  sourceUrl: text('source_url').notNull(),
+  sourceChecked: text('source_checked'),
+  scenario: text('scenario').notNull(),
+  inScope: boolean('in_scope').notNull(),
+  text: text('text').notNull(),
+  textSource: text('text_source', { enum: ['full_description', 'fixture_summary'] }).notNull(),
+  raw: jsonb('raw').notNull(),
+  recordSha256: text('record_sha256').notNull(),
+  // Employer, title, text and text source: a change invalidates analyses and priority overrides.
+  inputSha256: text('input_sha256').notNull(),
+  ...runColumns,
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const demoCandidates = pgTable('demo_candidates', {
+  key: text('key').primaryKey(),
+  name: text('name').notNull(),
+  githubUrl: text('github_url').notNull(),
+  githubLogin: text('github_login').notNull(),
+  // Lab and company accounts are never prepared or analysed as a person.
+  organization: boolean('organization').notNull().default(false),
+  repositories: jsonb('repositories')
+    .$type<{ owner: string; repo: string; pinnedSha: string | null }[]>()
+    .notNull(),
+  verification: jsonb('verification').notNull(),
+  raw: jsonb('raw').notNull(),
+  profileSha256: text('profile_sha256').notNull(),
+  resumeUrl: text('resume_url'),
+  resumeType: text('resume_type'),
+  // Manifest provenance for the local PDF; null when the profile has no resume.
+  resumeSource: jsonb('resume_source'),
+  resumePdfSha256: text('resume_pdf_sha256'),
+  resumeStatus: text('resume_status', { enum: ['none', 'extracted', 'needs_review'] })
+    .notNull()
+    .default('none'),
+  resumeReviewReason: text('resume_review_reason'),
+  resumePages: integer('resume_pages'),
+  // Never sent to clients; only flagged-free extractions are stored.
+  resumeText: text('resume_text'),
+  // serializePreparedCandidate output (GitHub snapshot and contributions), never sent to clients.
+  prepared: jsonb('prepared'),
+  preparedSha256: text('prepared_sha256'),
+  ...runColumns,
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

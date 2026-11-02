@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import { env, isProduction } from './env.js';
 import { authRoutes } from './routes/auth.js';
+import { demoRoutes } from './routes/demo.js';
 import { healthRoutes } from './routes/health.js';
 import { meRoutes } from './routes/me.js';
 
@@ -43,6 +44,7 @@ export async function buildApp() {
   await app.register(healthRoutes);
   await app.register(authRoutes);
   await app.register(meRoutes);
+  await app.register(demoRoutes);
 
   return app;
 }

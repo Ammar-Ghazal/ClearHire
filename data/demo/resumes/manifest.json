@@ -1,0 +1,1009 @@
+{
+  "version": 1,
+  "created_on": "2026-11-02",
+  "notes": [
+    "25 PDF resumes for the 25 profiles with source links; the three additional profiles without resume sources are not included.",
+    "Original profile/source files were preserved.",
+    "Reconstructed resumes are sourced demo documents, not candidate-submitted resumes.",
+    "HKUDS is a lab organization; lab repositories must not be attributed personally without evidence.",
+    "All resume content remains self-reported or reconstructed source claims, not demonstrated skills."
+  ],
+  "resumes": [
+    {
+      "key": "sindresorhus",
+      "name": "Sindre Sorhus",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://standardresume.co/r/sindre-sorhus",
+        "https://github.com/sindresorhus"
+      ],
+      "limitations": [
+        "Reconstructed from a published HTML resume; not a candidate-submitted application.",
+        "Project listings and technology claims have not been assessed for individual competency."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "Open-source developer whose published resume describes full-time community-supported work since 2018.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            }
+          ]
+        },
+        {
+          "heading": "Selected projects",
+          "items": [
+            {
+              "text": "Dato: macOS menu-bar clock with calendar and time-zone features.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            },
+            {
+              "text": "Shareful: additional macOS sharing actions; Lungo: a utility to keep a Mac awake.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            },
+            {
+              "text": "Kap: collaborative open-source macOS screen recording application.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            },
+            {
+              "text": "Got: Node.js HTTP library; XO: JavaScript linting; Pageres: website screenshot tooling.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            },
+            {
+              "text": "Pure: Zsh prompt; Chalk: terminal styling; AVA: Node.js testing.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            }
+          ]
+        },
+        {
+          "heading": "Self-reported technologies",
+          "items": [
+            {
+              "text": "Swift, Node.js, JavaScript, macOS applications and command-line interfaces.",
+              "source_url": "https://standardresume.co/r/sindre-sorhus"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/sindresorhus.pdf",
+      "sha256": "e027f9357508e6e48146ba6302b4ee9c6315d08611d1e330e62b11d708bbd359",
+      "pages": 1,
+      "text_characters": 1132,
+      "github_url": "https://github.com/sindresorhus",
+      "original_resume_source_url": "https://standardresume.co/r/sindre-sorhus",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "karpathy",
+      "name": "Andrej Karpathy",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://karpathy.ai/",
+        "https://github.com/karpathy"
+      ],
+      "limitations": [
+        "Experience dates and responsibilities are self-reported on the personal website.",
+        "No proficiency level or current job preference inferred."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "AI researcher and educator with work in neural networks, computer vision and language models.",
+              "source_url": "https://karpathy.ai/"
+            }
+          ]
+        },
+        {
+          "heading": "Experience",
+          "items": [
+            {
+              "text": "OpenAI, 2023–2024: describes building a team focused on midtraining and synthetic data.",
+              "source_url": "https://karpathy.ai/"
+            },
+            {
+              "text": "Tesla, 2017–2022: Director of AI leading Autopilot computer vision work, including labeling, neural-network training and deployment.",
+              "source_url": "https://karpathy.ai/"
+            },
+            {
+              "text": "OpenAI, 2015–2017: research scientist and founding member.",
+              "source_url": "https://karpathy.ai/"
+            },
+            {
+              "text": "Since 2024: publishes AI education videos, including technical and general-audience tracks.",
+              "source_url": "https://karpathy.ai/"
+            }
+          ]
+        },
+        {
+          "heading": "Research and teaching",
+          "items": [
+            {
+              "text": "Doctoral research, 2011–2015: convolutional and recurrent networks for vision and language at Stanford, advised by Fei-Fei Li.",
+              "source_url": "https://karpathy.ai/"
+            },
+            {
+              "text": "Designed and taught Stanford CS231n, focused on convolutional networks for visual recognition.",
+              "source_url": "https://karpathy.ai/"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/karpathy.pdf",
+      "sha256": "623ecafe26831cf75a2bd39ac4c90644a88c676a25f606fa95b82e6abbed615b",
+      "pages": 1,
+      "text_characters": 1202,
+      "github_url": "https://github.com/karpathy",
+      "original_resume_source_url": "https://karpathy.ai",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "donnemartin",
+      "name": "Donne Martin",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://donnemartin.com/",
+        "https://github.com/donnemartin"
+      ],
+      "limitations": [
+        "Public sources use different role labels without dates; neither is asserted as the current role.",
+        "Reconstructed public-source resume; dates, degree and individual contribution levels omitted."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "Public profile describes work in large-scale systems, data and open-source software.",
+              "source_url": "https://donnemartin.com/"
+            }
+          ]
+        },
+        {
+          "heading": "Experience",
+          "items": [
+            {
+              "text": "Personal site lists an Engineering Manager role at Facebook supporting Public Safety Engineering; dates are not provided.",
+              "source_url": "https://donnemartin.com/"
+            },
+            {
+              "text": "GitHub bio separately identifies a Tech Lead association with Facebook.",
+              "source_url": "https://github.com/donnemartin"
+            }
+          ]
+        },
+        {
+          "heading": "Selected projects",
+          "items": [
+            {
+              "text": "System Design Primer: educational resources for large-scale system design.",
+              "source_url": "https://donnemartin.com/"
+            },
+            {
+              "text": "Interactive Python coding challenges and data-science notebooks.",
+              "source_url": "https://donnemartin.com/"
+            },
+            {
+              "text": "Gitsome: Git/GitHub command-line tooling; AWS Shell and SAWS: AWS command-line tools.",
+              "source_url": "https://donnemartin.com/"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/donnemartin.pdf",
+      "sha256": "31d2886ebf72fae3b8de7812fb14519d911ac7acb24bbd70723c69a43b1ca2e3",
+      "pages": 1,
+      "text_characters": 1071,
+      "github_url": "https://github.com/donnemartin",
+      "original_resume_source_url": "https://www.linkedin.com/in/donnemartin/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "nilbuild",
+      "name": "Kamran Ahmed",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://kamran.fyi/",
+        "https://github.com/nilbuild"
+      ],
+      "limitations": [
+        "The personal site directly links to github.com/nilbuild.",
+        "Responsibilities are self-reported; no role suitability or personal code attribution inferred."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "Describes hands-on product and engineering leadership spanning product definition, design, implementation, deployment and team leadership.",
+              "source_url": "https://kamran.fyi/"
+            }
+          ]
+        },
+        {
+          "heading": "Experience",
+          "items": [
+            {
+              "text": "Insight Media Group: leads product and engineering across roadmap.sh, The New Stack and Towards Data Science; joined following the 2022 roadmap.sh acquisition.",
+              "source_url": "https://kamran.fyi/"
+            },
+            {
+              "text": "Almosafer, 2015–2019: Engineering Lead and founding engineering work on platform services and team development.",
+              "source_url": "https://kamran.fyi/"
+            },
+            {
+              "text": "Tradeling, 2019–2021: Engineering Manager and founding engineering work on a B2B commerce platform.",
+              "source_url": "https://kamran.fyi/"
+            },
+            {
+              "text": "Earlier engineering roles listed at Zalando and Al Tayer Group; dates not supplied.",
+              "source_url": "https://kamran.fyi/"
+            }
+          ]
+        },
+        {
+          "heading": "Selected projects",
+          "items": [
+            {
+              "text": "roadmap.sh: developer learning paths; driver.js: browser-based product tours and onboarding.",
+              "source_url": "https://kamran.fyi/"
+            },
+            {
+              "text": "Other listed products include desktop database tools, mind mapping and developer utilities.",
+              "source_url": "https://kamran.fyi/"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/nilbuild.pdf",
+      "sha256": "494d9128a9c9a34057b2d41ab4c6ec251cd719128a293f5c0b55cbacbab85c9e",
+      "pages": 1,
+      "text_characters": 1300,
+      "github_url": "https://github.com/nilbuild",
+      "original_resume_source_url": "https://kamran.fyi",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "HKUDS",
+      "name": "Chao Huang",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://sites.google.com/view/chaoh",
+        "https://github.com/HKUDS"
+      ],
+      "limitations": [
+        "HKUDS is explicitly presented as the lab GitHub, not an individual personal account.",
+        "Lab project capabilities must not be credited to Chao Huang without contribution evidence.",
+        "Reconstructed academic profile; no degrees or dates invented."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "Assistant Professor and doctoral advisor in Computer Science and the Institute of Data Science at the University of Hong Kong.",
+              "source_url": "https://sites.google.com/view/chaoh"
+            }
+          ]
+        },
+        {
+          "heading": "Research experience",
+          "items": [
+            {
+              "text": "Directs the Data Intelligence Lab at HKU.",
+              "source_url": "https://sites.google.com/view/chaoh"
+            },
+            {
+              "text": "Listed research areas include large language models, autonomous agents, graph learning, recommender systems and AI for smart cities.",
+              "source_url": "https://sites.google.com/view/chaoh"
+            }
+          ]
+        },
+        {
+          "heading": "Selected lab research",
+          "items": [
+            {
+              "text": "Lab projects include LightRAG and RAG-Anything for retrieval-augmented generation, and GraphGPT for graph modeling.",
+              "source_url": "https://sites.google.com/view/chaoh"
+            },
+            {
+              "text": "The website also lists AI-research and agent-oriented projects developed by the lab.",
+              "source_url": "https://sites.google.com/view/chaoh"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/HKUDS.pdf",
+      "sha256": "9f7ea58770b3e6eb49485c1c16e35df5b7cba409da299e64a585bdc03c4adc53",
+      "pages": 1,
+      "text_characters": 1122,
+      "github_url": "https://github.com/HKUDS",
+      "original_resume_source_url": "https://sites.google.com/view/chaoh",
+      "limited_source": false,
+      "github_account_kind": "organization"
+    },
+    {
+      "key": "jwasham",
+      "name": "John Washam",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://github.com/jwasham",
+        "https://github.com/jwasham/coding-interview-university"
+      ],
+      "limitations": [
+        "Employment is a public self-report and is not independently verified as current.",
+        "Project descriptions are not proof of mastery of every listed topic.",
+        "Education credentials, employment dates and additional roles were not available from inspected sources."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "GitHub bio lists Software Development Engineer at Amazon; employment dates are not supplied.",
+              "source_url": "https://github.com/jwasham"
+            }
+          ]
+        },
+        {
+          "heading": "Selected project",
+          "items": [
+            {
+              "text": "Coding Interview University: public computer-science study material covering data structures, algorithms and software-engineering interview preparation.",
+              "source_url": "https://github.com/jwasham/coding-interview-university"
+            },
+            {
+              "text": "The project introduction describes a personal study process leading to a software-development role at Amazon.",
+              "source_url": "https://github.com/jwasham/coding-interview-university"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/jwasham.pdf",
+      "sha256": "6fab2e8a555f1dce2a427c797dec431907fdf9d42fecf57aeee36400e5fa242a",
+      "pages": 1,
+      "text_characters": 982,
+      "github_url": "https://github.com/jwasham",
+      "original_resume_source_url": "https://www.linkedin.com/in/johnawasham/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "Skeurz",
+      "name": "Anas Zahou",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://ma.linkedin.com/in/anas-zahou-3b4005199",
+        "https://github.com/Skeurz"
+      ],
+      "limitations": [
+        "Limited-source resume: no work history or technical skills could be verified from accessible primary pages.",
+        "GitHub profile could not be retrieved during research; the supplied identity association is unverified.",
+        "Do not treat missing fields as evidence of low competency."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Education",
+          "items": [
+            {
+              "text": "Publicly indexed LinkedIn profile lists Specialized Institute of Applied Technology attendance, 2018–2020. The program and degree are not visible.",
+              "source_url": "https://ma.linkedin.com/in/anas-zahou-3b4005199"
+            }
+          ]
+        },
+        {
+          "heading": "Portfolio",
+          "items": [
+            {
+              "text": "The demo source record associates this name with GitHub account Skeurz; that identity pairing remains unverified.",
+              "source_url": "https://github.com/Skeurz"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/Skeurz.pdf",
+      "sha256": "b61c42923b222cb40cbb8386986b75c56b28d98d4068f619bc6771bdad61f9c4",
+      "pages": 1,
+      "text_characters": 872,
+      "github_url": "https://github.com/Skeurz",
+      "original_resume_source_url": "https://www.linkedin.com/in/anas-zahou-3b4005199/",
+      "limited_source": true,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "rubenedery",
+      "name": "Ruben Edery",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://fr.linkedin.com/in/ruben-edery",
+        "https://github.com/rubenedery"
+      ],
+      "limitations": [
+        "The supplied LinkedIn URL matches the inspected localized profile, but its relationship to GitHub account rubenedery remains unverified.",
+        "GitHub profile could not be retrieved during research.",
+        "No employer role title, degree title or individual contribution claims have been invented."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional profile",
+          "items": [
+            {
+              "text": "Publicly indexed LinkedIn profile describes experience in eCommerce and lists an association with RIMOWA. The job title and dates are not visible.",
+              "source_url": "https://fr.linkedin.com/in/ruben-edery"
+            }
+          ]
+        },
+        {
+          "heading": "Education",
+          "items": [
+            {
+              "text": "Lists ESIPE, École Supérieure d’Ingénieurs Paris-Est Créteil, from 2013–2018; no degree title is inferred.",
+              "source_url": "https://fr.linkedin.com/in/ruben-edery"
+            }
+          ]
+        },
+        {
+          "heading": "Professional development",
+          "items": [
+            {
+              "text": "Lists a December 2020 B2C Commerce Developer with SFRA examination result.",
+              "source_url": "https://fr.linkedin.com/in/ruben-edery"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/rubenedery.pdf",
+      "sha256": "ecc81c3095eaa23aea87e55022e4895ce6d10da597af96c263fe67a8de0ba873",
+      "pages": 1,
+      "text_characters": 992,
+      "github_url": "https://github.com/rubenedery",
+      "original_resume_source_url": "https://www.linkedin.com/in/ruben-edery/",
+      "limited_source": true,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "antfu",
+      "name": "Anthony Fu",
+      "file": "data/demo/resumes/antfu.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://resume.antfu.me/resume.pdf",
+      "sha256": "dc0013e6ac53d59372d5a98f24e9ab5f82359aeabbdb7dcb570a227d5b8c7cd3",
+      "pages": 2,
+      "text_characters": 3281,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://resume.antfu.me/resume.pdf"
+      ],
+      "github_url": "https://github.com/antfu",
+      "original_resume_source_url": "https://resume.antfu.me/resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "LeaVerou",
+      "name": "Lea Verou",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://cv.verou.me/"
+      ],
+      "limitations": [
+        "Reconstructed from a self-published CV; the page includes inconsistent present-tense PhD wording, so education dates follow its education section.",
+        "Experience and impact claims remain self-reported."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional summary",
+          "items": [
+            {
+              "text": "Web platform specialist working across API design, CSS standards, developer tools, usability and teaching.",
+              "source_url": "https://cv.verou.me/"
+            }
+          ]
+        },
+        {
+          "heading": "Experience",
+          "items": [
+            {
+              "text": "W3C Technical Architecture Group — elected member, listed from 2021. Conducts web-platform design reviews and contributes to design principles.",
+              "source_url": "https://cv.verou.me/"
+            },
+            {
+              "text": "CSS Working Group — Invited Expert, listed from 2012. Contributions include CSS features, color capabilities and nesting syntax.",
+              "source_url": "https://cv.verou.me/"
+            },
+            {
+              "text": "Lea Verou Consulting — founder, listed from 2011. Clients named in the CV include Google, Stripe and Mozilla.",
+              "source_url": "https://cv.verou.me/"
+            },
+            {
+              "text": "MIT — Research Assistant, 2014–2024, excluding teaching appointments. Developed tools intended to make web applications easier to author, including Mavo.",
+              "source_url": "https://cv.verou.me/"
+            },
+            {
+              "text": "MIT — instructor appointments in 2018, 2020, 2022 and 2023; teaching assistant for an interactive visualization course in 2024.",
+              "source_url": "https://cv.verou.me/"
+            }
+          ]
+        },
+        {
+          "heading": "Education",
+          "items": [
+            {
+              "text": "PhD in Computer Science, MIT, 2024; MSc in Computer Science, MIT, 2017; BSc in Computer Science, Athens University of Economics and Business, 2013.",
+              "source_url": "https://cv.verou.me/"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/LeaVerou.pdf",
+      "sha256": "308f38dfe0877370c62c676c523cdce89aaa92d1d000f78137a0c68d2e0cd337",
+      "pages": 1,
+      "text_characters": 1444,
+      "github_url": "https://github.com/LeaVerou",
+      "original_resume_source_url": "https://cv.verou.me/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "GaelVaroquaux",
+      "name": "Gaël Varoquaux",
+      "file": "data/demo/resumes/GaelVaroquaux.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://gael-varoquaux.info/pages/attachments/gael_varoquaux_cv.pdf",
+      "sha256": "3dee6da5aa546b70d779bd16f844e48e014ea5e81e2ee5944471858c04384fdc",
+      "pages": 1,
+      "text_characters": 2815,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://gael-varoquaux.info/pages/attachments/gael_varoquaux_cv.pdf"
+      ],
+      "github_url": "https://github.com/GaelVaroquaux",
+      "original_resume_source_url": "https://gael-varoquaux.info/pages/attachments/gael_varoquaux_cv.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "igmarin",
+      "name": "Ismael Marin",
+      "file": "data/demo/resumes/igmarin.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://ismaelmarin.dev/resume/ismael-marin-resume.pdf",
+      "sha256": "2518068012fdcb4ded1b555b256c9c4f63558ed83ba66470be5b532c3508f41e",
+      "pages": 2,
+      "text_characters": 7057,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://ismaelmarin.dev/resume/ismael-marin-resume.pdf"
+      ],
+      "github_url": "https://github.com/igmarin",
+      "original_resume_source_url": "https://ismaelmarin.dev/resume/ismael-marin-resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "SahilAukhaj",
+      "name": "Sahil Aukhaj",
+      "file": "data/demo/resumes/SahilAukhaj.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://sahilaukhaj.github.io/assets/Sahil_Aukhaj_Resume.pdf",
+      "sha256": "94bf639a406d8e92f3eb8bcc24cec0202f71194a8c11eec5baf732a7a611b200",
+      "pages": 1,
+      "text_characters": 4426,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://sahilaukhaj.github.io/assets/Sahil_Aukhaj_Resume.pdf"
+      ],
+      "github_url": "https://github.com/SahilAukhaj",
+      "original_resume_source_url": "https://sahilaukhaj.github.io/assets/Sahil_Aukhaj_Resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "anpl1623",
+      "name": "Andrew Pleeter",
+      "file": "data/demo/resumes/anpl1623.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://andrewpleeter.us/resume.pdf",
+      "sha256": "aae8d0097ec436e429731f8c1f3f70440979f757346b9c3b8f7f788457be1f9f",
+      "pages": 1,
+      "text_characters": 3438,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://andrewpleeter.us/resume.pdf"
+      ],
+      "github_url": "https://github.com/anpl1623",
+      "original_resume_source_url": "https://andrewpleeter.us/resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "jhonrocha",
+      "name": "Jhon Rocha",
+      "file": "data/demo/resumes/jhonrocha.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://jhonrocha.github.io/resume.pdf",
+      "sha256": "3251c102ea38c99d771d0a1438d4d9ab0d8036630f18d7e7a292286fc842289f",
+      "pages": 4,
+      "text_characters": 5283,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://jhonrocha.github.io/resume.pdf"
+      ],
+      "github_url": "https://github.com/jhonrocha",
+      "original_resume_source_url": "https://jhonrocha.github.io/resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "Subhan2117",
+      "name": "Subhan Nadeem",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://subhan-portfolio-navy.vercel.app/"
+      ],
+      "limitations": [
+        "Reconstructed from portfolio claims. Project lead labels do not independently verify contribution ownership.",
+        "No employment dates or graduation date were inferred."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Professional summary",
+          "items": [
+            {
+              "text": "Full-stack developer focused on web applications using Next.js, React, Node.js and PostgreSQL, as described on the portfolio.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            }
+          ]
+        },
+        {
+          "heading": "Selected projects",
+          "items": [
+            {
+              "text": "RE's Hardware Store — e-commerce project with catalog filtering, stock display, checkout and Stripe webhook integration. Listed stack includes Next.js, PostgreSQL and Prisma.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            },
+            {
+              "text": "HQCC — Hofstra Quantum Computing Club platform for membership onboarding, events, board roles and content management using Next.js, React and Firebase.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            },
+            {
+              "text": "HireFlow — job-tracking application with user/employer dashboards, saved jobs, authentication and PostgreSQL-backed data modeling.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            },
+            {
+              "text": "Movie Explorer — React application emphasizing semantic HTML, metadata and accessible interfaces.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            }
+          ]
+        },
+        {
+          "heading": "Education",
+          "items": [
+            {
+              "text": "Computer Science student at Hofstra University, according to the portfolio.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            }
+          ]
+        },
+        {
+          "heading": "Technical background",
+          "items": [
+            {
+              "text": "Self-listed tools include Tailwind CSS, Prisma, NextAuth, Supabase, REST APIs, Vercel and Git.",
+              "source_url": "https://subhan-portfolio-navy.vercel.app/"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/Subhan2117.pdf",
+      "sha256": "7b6ee53c608bde2125373d6e55214d65d89c25c9d9643103e8a9aefad50fdaf6",
+      "pages": 1,
+      "text_characters": 1397,
+      "github_url": "https://github.com/Subhan2117",
+      "original_resume_source_url": "https://subhan-portfolio-navy.vercel.app/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "H-R-Wells2",
+      "name": "Shubham Kadam",
+      "file": "data/demo/resumes/H-R-Wells2.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://www.hrwells.dev/hrwells-resume.pdf",
+      "sha256": "2d5830fd7d19ea208f606e9d4e0194c0fa083aa64b31ac05774ffbb772992199",
+      "pages": 2,
+      "text_characters": 4096,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://www.hrwells.dev/hrwells-resume.pdf"
+      ],
+      "github_url": "https://github.com/H-R-Wells2",
+      "original_resume_source_url": "https://www.hrwells.dev/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "shuobyian",
+      "name": "Subeen Chang",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://github.com/shuobyian/portfolio/blob/main/resume.md",
+        "https://github.com/shuobyian"
+      ],
+      "limitations": [
+        "English paraphrase of a Korean-language self-published resume.",
+        "The English display name follows the saved ClearHire profile; source identifies the person as 장수빈.",
+        "Reported results and employment have not been independently verified."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Profile",
+          "items": [
+            {
+              "text": "Frontend developer whose Korean-language resume describes work on reservation, payment, POS and kiosk applications, including state management, caching and synchronization.",
+              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
+            }
+          ]
+        },
+        {
+          "heading": "Experience",
+          "items": [
+            {
+              "text": "The resume lists employment at 주식회사 알스솔루션 from March 2025, with frontend conventions, shared packages, Jenkins deployment pipelines and reusable design systems across multiple projects.",
+              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
+            }
+          ]
+        },
+        {
+          "heading": "Selected engineering work",
+          "items": [
+            {
+              "text": "Describes a React/TypeScript back-office application, staged migration to Ant Design, AWS S3 uploads, and rebuilding a pharmacy-management frontend during a JSP-to-Spring backend transition.",
+              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
+            }
+          ]
+        },
+        {
+          "heading": "Listed technologies",
+          "items": [
+            {
+              "text": "React, TypeScript, React Query, Zustand, Zod, Tailwind CSS, Storybook, Vitest, Playwright, Jenkins, GitHub Actions, Docker, Node.js and PostgreSQL.",
+              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/shuobyian.pdf",
+      "sha256": "80536717f913b667c8d6ad025b8775be8521847ed04518f85d2811c8c3d9f8e0",
+      "pages": 1,
+      "text_characters": 1391,
+      "github_url": "https://github.com/shuobyian",
+      "original_resume_source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "Ishan-sa",
+      "name": "Ishan Sachdeva",
+      "file": "data/demo/resumes/Ishan-sa.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://ishansa.dev/resume/resume.pdf",
+      "sha256": "b940168dbc5ed22fc0567b29b17a227f1ee1834797783d43de1491cbaf813c19",
+      "pages": 2,
+      "text_characters": 3740,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://ishansa.dev/resume/resume.pdf"
+      ],
+      "github_url": "https://github.com/Ishan-sa",
+      "original_resume_source_url": "https://ishansa.dev/resume/resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "TDD66",
+      "name": "Tadiwanashe Dzvoti",
+      "kind": "reconstructed_demo_resume",
+      "sources": [
+        "https://tadiwanashedzvoti.com/",
+        "https://github.com/TDD66"
+      ],
+      "limitations": [
+        "Reconstructed from self-published portfolio claims; education and employment dates were not available on the retrieved page."
+      ],
+      "generated_on": "2026-11-02",
+      "claim_provenance": [
+        {
+          "heading": "Profile",
+          "items": [
+            {
+              "text": "Manchester-based software engineer describing Java full-stack development, backend services and cloud infrastructure.",
+              "source_url": "https://tadiwanashedzvoti.com/"
+            }
+          ]
+        },
+        {
+          "heading": "Experience",
+          "items": [
+            {
+              "text": "The portfolio identifies THG Ingenuity as the employer and describes work on high-throughput order-processing microservices for retail platforms.",
+              "source_url": "https://tadiwanashedzvoti.com/"
+            }
+          ]
+        },
+        {
+          "heading": "Selected projects",
+          "items": [
+            {
+              "text": "Rate My Uni: university-review application with React, Spring Boot and PostgreSQL. Portfolio infrastructure: a GCP Cloud Resume Challenge project with Cloud Storage hosting, HTTPS load balancing/CDN, a Python Cloud Run visitor counter, Firestore, Terraform and automated deployment.",
+              "source_url": "https://tadiwanashedzvoti.com/"
+            }
+          ]
+        },
+        {
+          "heading": "Listed technologies",
+          "items": [
+            {
+              "text": "Java, JavaScript, C++, Python, Spring Boot, React, GCP, Terraform, Docker, Kubernetes, Jenkins, GitHub Actions, PostgreSQL and Firestore.",
+              "source_url": "https://tadiwanashedzvoti.com/"
+            }
+          ]
+        }
+      ],
+      "file": "data/demo/resumes/TDD66.pdf",
+      "sha256": "0554985b561afbfdf22b0f899c06839014aa5fbff0766f55c6c5a5d77ba3fd19",
+      "pages": 1,
+      "text_characters": 1184,
+      "github_url": "https://github.com/TDD66",
+      "original_resume_source_url": "https://tadiwanashedzvoti.com/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "viet-in-tech",
+      "name": "Viet Nguyen",
+      "file": "data/demo/resumes/viet-in-tech.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://viet-in-tech.github.io/resume-viet-nguyen.pdf",
+      "sha256": "dc98e12e6a398b9e88652ea288ce64fa2f0a8043fb7b340bcc9adb5bc201e277",
+      "pages": 2,
+      "text_characters": 6630,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://viet-in-tech.github.io/resume-viet-nguyen.pdf"
+      ],
+      "github_url": "https://github.com/viet-in-tech",
+      "original_resume_source_url": "https://viet-in-tech.github.io/resume.html",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "tolatechy",
+      "name": "Ibraheem Obanla",
+      "file": "data/demo/resumes/tolatechy.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://ibraheemobanla.com/resume/Ibraheem_Obanla_Resume.pdf",
+      "sha256": "95a70677894711aeb78fd3e5f4b9f0cd2c9b73272fc9863923126016ce45060a",
+      "pages": 2,
+      "text_characters": 4983,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://ibraheemobanla.com/resume/Ibraheem_Obanla_Resume.pdf"
+      ],
+      "github_url": "https://github.com/tolatechy",
+      "original_resume_source_url": "https://ibraheemobanla.com/resume/Ibraheem_Obanla_Resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "dwrodri",
+      "name": "Derek Rodriguez",
+      "file": "data/demo/resumes/dwrodri.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://derekrodriguez.dev/resume.pdf",
+      "sha256": "b1c91e28fedd8d95bee91aa9d593a6e35635fdd6f9484d9abb1c4816ff33f726",
+      "pages": 1,
+      "text_characters": 3035,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://derekrodriguez.dev/resume.pdf"
+      ],
+      "github_url": "https://github.com/dwrodri",
+      "original_resume_source_url": "https://derekrodriguez.dev/resume/",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "emirafwan",
+      "name": "Emir Afwan",
+      "file": "data/demo/resumes/emirafwan.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://emirafwan.github.io/Emir_Afwan_Resume.pdf",
+      "sha256": "3e351435e6d4b7f36ebb2bdb68561815bae7b18987b379411c354821c1c9a415",
+      "pages": 2,
+      "text_characters": 3989,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://emirafwan.github.io/Emir_Afwan_Resume.pdf"
+      ],
+      "github_url": "https://github.com/emirafwan",
+      "original_resume_source_url": "https://emirafwan.github.io/Emir_Afwan_Resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    },
+    {
+      "key": "akuldevali",
+      "name": "Akul Gopal Devali",
+      "file": "data/demo/resumes/akuldevali.pdf",
+      "kind": "original_public_resume",
+      "source_url": "https://akuldevali.fyi/Akul-Resume.pdf",
+      "sha256": "f7a04e506d4b6f398f9cfff1c19b1eeee54a9b8815810a1ccd3d1c1c8e3f19f5",
+      "pages": 2,
+      "text_characters": 5301,
+      "retrieved_on": "2026-11-02",
+      "limitations": [
+        "Original self-published resume; employment and skills are claims, not independent verification."
+      ],
+      "sources": [
+        "https://akuldevali.fyi/Akul-Resume.pdf"
+      ],
+      "github_url": "https://github.com/akuldevali",
+      "original_resume_source_url": "https://akuldevali.fyi/Akul-Resume.pdf",
+      "limited_source": false,
+      "github_account_kind": "not_reverified_by_this_conversion"
+    }
+  ]
+}

@@ -284,12 +284,26 @@ async function failStale(rowId: string): Promise<boolean> {
   });
 }
 
-/** Recovers every stale pending assessment; never resends their requests. */
-export async function recoverStaleAssessments(): Promise<number> {
+/** Recovers stale pending assessments (all, or one subject's); never resends their requests. */
+export async function recoverStaleAssessments(subject?: {
+  kind: 'candidate' | 'job';
+  subjectKind: 'demo' | 'user';
+  subjectKey: string;
+}): Promise<number> {
   const pending = await db
     .select()
     .from(skillAssessments)
-    .where(eq(skillAssessments.status, 'pending'));
+    .where(
+      and(
+        eq(skillAssessments.status, 'pending'),
+        subject &&
+          and(
+            eq(skillAssessments.kind, subject.kind),
+            eq(skillAssessments.subjectKind, subject.subjectKind),
+            eq(skillAssessments.subjectKey, subject.subjectKey),
+          ),
+      ),
+    );
   let recovered = 0;
   const errors: unknown[] = [];
   for (const row of pending) {
@@ -467,12 +481,12 @@ function reverifyCandidate(row: Row): CandidateAssessment {
   });
 }
 
-export async function analyzeCandidate(
-  prepared: PreparedCandidate,
-  options: RunOptions = {},
-): Promise<RunResult<CandidateAssessment>> {
+/**
+ * The cache key `analyzeCandidate` would claim, with the evidence and body behind it. Pure apart
+ * from configuration, so result reads use exactly the same inputs as analysis.
+ */
+export function candidateFingerprint(prepared: PreparedCandidate, options: RunOptions = {}) {
   const model = selectedModel(options);
-  assertDataUse(model, [prepared.dataUse]);
   const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
   if (ceiling + CANDIDATE_MAX_COMPLETION_TOKENS > CONTEXT_WINDOW) {
     throw new MuseError(
@@ -489,6 +503,22 @@ export async function analyzeCandidate(
       ? { kind: 'candidate', subject, model, evidenceHash, noAttributedEvidence: true }
       : { kind: 'candidate', subject, body, evidenceHash },
   );
+  return { model, evidence, body, noEvidence, cacheKey };
+}
+
+export async function analyzeCandidate(
+  prepared: PreparedCandidate,
+  options: RunOptions = {},
+): Promise<RunResult<CandidateAssessment>> {
+  const model = selectedModel(options);
+  assertDataUse(model, [prepared.dataUse]);
+  const { evidence, body, noEvidence, cacheKey } = candidateFingerprint(prepared, {
+    ...options,
+    model,
+  });
+  // Resume text is restricted data. Checked before claim() so a refusal leaves no pending row;
+  // the no-evidence branch sends nothing, so it needs no check.
+  if (!noEvidence && prepared.resume) assertDataUse(model, ['restricted']);
 
   const claimed = await claim(
     {
@@ -557,17 +587,10 @@ function reverifyJob(row: Row): JobAssessment {
   );
 }
 
-export async function analyzeJob(
-  job: PreparedJob,
-  options: RunOptions = {},
-): Promise<RunResult<JobAssessment>> {
+/** The cache key `analyzeJob` would claim; result reads use the same computation. */
+export function jobFingerprint(job: JobInput, options: RunOptions = {}) {
   const model = selectedModel(options);
-  assertDataUse(model, [job.dataUse]);
   const body = jobBody(model, job);
-  const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
-  // Job text is never truncated: an oversized description is rejected instead.
-  if (estimateTokens(body) > ceiling)
-    throw new MuseError('input_too_large', 'Job description exceeds the ceiling');
   const input: JobInput = {
     jobKey: job.jobKey,
     employerId: job.employerId,
@@ -575,12 +598,26 @@ export async function analyzeJob(
     text: job.text,
     textSource: job.textSource,
   };
+  return { model, body, input, cacheKey: cacheKeyOf({ kind: 'job', body, job: input }) };
+}
+
+export async function analyzeJob(
+  job: PreparedJob,
+  options: RunOptions = {},
+): Promise<RunResult<JobAssessment>> {
+  const model = selectedModel(options);
+  assertDataUse(model, [job.dataUse]);
+  const { body, input, cacheKey } = jobFingerprint(job, { ...options, model });
+  const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
+  // Job text is never truncated: an oversized description is rejected instead.
+  if (estimateTokens(body) > ceiling)
+    throw new MuseError('input_too_large', 'Job description exceeds the ceiling');
   const claimed = await claim(
     {
       kind: 'job',
       subjectKind: 'demo',
       subjectKey: job.jobKey,
-      cacheKey: cacheKeyOf({ kind: 'job', body, job: input }),
+      cacheKey,
       model,
       catalogueVersion: SKILL_CATALOGUE.version,
       status: 'pending',
@@ -605,6 +642,56 @@ export async function analyzeJob(
   return { assessmentId: row.id, assessment, cached: false };
 }
 
+// ---- Read-only lookup ----
+
+export type Lookup<T> =
+  | { state: 'current'; assessment: T; completedAt: Date | null }
+  | { state: 'pending' }
+  | { state: 'failed'; errorCode: string | null }
+  | { state: 'outdated' }
+  | { state: 'not_started' };
+
+/**
+ * The saved result for exactly this fingerprint. Re-verifies in memory and never writes, so a
+ * read can never mark an older input's result as current.
+ */
+export async function assessmentByFingerprint<K extends 'candidate' | 'job'>(
+  kind: K,
+  subject: { kind: 'demo' | 'user'; key: string },
+  cacheKey: string,
+): Promise<Lookup<K extends 'candidate' ? CandidateAssessment : JobAssessment>> {
+  type T = K extends 'candidate' ? CandidateAssessment : JobAssessment;
+  const [row] = await db
+    .select()
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.cacheKey, cacheKey),
+        eq(skillAssessments.kind, kind),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+      ),
+    );
+  if (row && (SAVED as readonly string[]).includes(row.status)) {
+    const assessment = kind === 'candidate' ? reverifyCandidate(row) : reverifyJob(row);
+    return { state: 'current', assessment: assessment as T, completedAt: row.completedAt };
+  }
+  if (row?.status === 'pending') return { state: 'pending' };
+  if (row?.status === 'failed') return { state: 'failed', errorCode: row.errorCode };
+  const [older] = await db
+    .select({ id: skillAssessments.id })
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.kind, kind),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+      ),
+    )
+    .limit(1);
+  return older ? { state: 'outdated' } : { state: 'not_started' };
+}
+
 // ---- Overrides and matching ----
 
 export async function setPriorityOverride(input: unknown): Promise<PriorityOverride> {
@@ -619,6 +706,13 @@ export async function setPriorityOverride(input: unknown): Promise<PriorityOverr
       set: { priority, updatedAt: new Date() },
     });
   return parsed.data;
+}
+
+/** Resets one requirement to its suggested priority. */
+export async function clearPriorityOverride(jobKey: string, skillId: string): Promise<void> {
+  await db
+    .delete(jobPriorityOverrides)
+    .where(and(eq(jobPriorityOverrides.jobKey, jobKey), eq(jobPriorityOverrides.skillId, skillId)));
 }
 
 async function latestSaved(

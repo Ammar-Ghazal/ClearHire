@@ -171,6 +171,12 @@ describe('matchAssessments', () => {
     expect(result).toMatchObject({ status: 'scored', provisional: true, compatibility: 0 });
   });
 
+  it('marks matches against an abbreviated fixture summary provisional', () => {
+    const summary = { ...posting, textSource: 'fixture_summary' as const };
+    expect(matchAssessments(candidate([]), posting)).toMatchObject({ provisional: false });
+    expect(matchAssessments(candidate([]), summary)).toMatchObject({ provisional: true });
+  });
+
   it('leaves zero-priority and out-of-scope jobs unscored', () => {
     expect(matchAssessments(candidate([]), job([['api-design', 1, 0]]))).toMatchObject({
       status: 'unscored',

@@ -2,7 +2,7 @@
 import { and, eq, gt } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { db } from '../db/client.js';
-import { sessions } from '../db/schema.js';
+import { sessions, users } from '../db/schema.js';
 import { isProduction } from '../env.js';
 import { randomToken } from './crypto.js';
 
@@ -41,6 +41,19 @@ export async function currentUserId(request: FastifyRequest): Promise<string | n
     .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date())))
     .limit(1);
   return row?.userId ?? null;
+}
+
+/** Returns the signed-in user's GitHub login, or null. */
+export async function currentUserLogin(request: FastifyRequest): Promise<string | null> {
+  const id = sessionIdFrom(request);
+  if (!id) return null;
+  const [row] = await db
+    .select({ login: users.login })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date())))
+    .limit(1);
+  return row?.login ?? null;
 }
 
 export async function destroySession(request: FastifyRequest, reply: FastifyReply): Promise<void> {

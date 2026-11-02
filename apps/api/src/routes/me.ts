@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/client.js';
 import { githubConnections, userEmails, users } from '../db/schema.js';
+import { isDemoOperator } from '../env.js';
 import { installUrl } from '../lib/github.js';
 import { currentUserId } from '../lib/sessions.js';
 
@@ -37,6 +38,7 @@ export async function meRoutes(app: FastifyInstance) {
         installationId: connection?.installationId ?? null,
         installUrl: installUrl(),
       },
+      isDemoOperator: isDemoOperator(user.login),
     };
     return body;
   });

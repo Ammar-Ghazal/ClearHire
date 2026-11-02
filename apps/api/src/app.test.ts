@@ -9,6 +9,7 @@ vi.mock('./env.js', () => ({
 vi.mock('./routes/auth.js', () => ({ authRoutes: async () => {} }));
 vi.mock('./routes/health.js', () => ({ healthRoutes: async () => {} }));
 vi.mock('./routes/me.js', () => ({ meRoutes: async () => {} }));
+vi.mock('./routes/demo.js', () => ({ demoRoutes: async () => {} }));
 
 describe('error handler', () => {
   it.each([

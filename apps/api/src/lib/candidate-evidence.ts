@@ -36,6 +36,8 @@ export interface UnavailableRepo {
   owner: string;
   repo: string;
   unavailable: string;
+  /** The pinned commit the failed fetch asked for, so a changed pin is fetched again. */
+  requestedSha?: string | null;
 }
 
 export interface PreparedCandidate {
@@ -503,7 +505,12 @@ const PreparedCandidateFileSchema = z.object({
   }),
   repos: z.array(
     z.union([
-      z.object({ owner: z.string(), repo: z.string(), unavailable: z.string() }),
+      z.object({
+        owner: z.string(),
+        repo: z.string(),
+        unavailable: z.string(),
+        requestedSha: z.string().nullable().optional(),
+      }),
       z.object({
         owner: z.string(),
         repo: z.string(),

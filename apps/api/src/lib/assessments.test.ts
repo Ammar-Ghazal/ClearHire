@@ -24,7 +24,10 @@ const { jobPriorityOverrides, museCalls, museSpendBudgets, skillAssessments } =
 const {
   analyzeCandidate,
   analyzeJob,
+  assessmentByFingerprint,
+  candidateFingerprint,
   dbLedger,
+  jobFingerprint,
   matchSaved,
   recoverStaleAssessments,
   setPriorityOverride,
@@ -119,6 +122,39 @@ afterAll(async () => {
     await db.delete(jobPriorityOverrides).where(like(jobPriorityOverrides.jobKey, `${RUN}%`));
   }
   await pool.end();
+});
+
+// Recorded from the code before fingerprints were extracted (and confirmed equal to the keys it
+// stored), so a change here means every saved assessment would silently become outdated. They
+// also change when the catalogue or a prompt/schema/cleaner/selection/attribution version does.
+const GOLDEN = {
+  evidence: 'ef9a60edb1418d4ee8f6e02b6382ae895ccd25aff478146a15684751767acc0d',
+  noEvidence: '08176a99b97b875ecddcbf5f92212c962867d6795a28b104280ba8b400874197',
+  job: '1f1dda11c327423569dbc547b0b2317699ed8cc328ffcdd41f6aff1f3a4918d3',
+};
+const golden = (key: string, repos = [attributedRepo()]) =>
+  fixtureCandidate(repos, { subject: { kind: 'demo', key } });
+const unattributedRepo = () =>
+  fixtureRepo('two', [{ path: 'src/b.ts', content: sourceLines(10) }], []);
+const MODEL = { model: 'muse-spark-1.3-contributor' as const };
+
+describe('fingerprints', () => {
+  it('reproduce the cache keys analysis has always stored', () => {
+    expect(candidateFingerprint(golden('golden-evidence'), MODEL).cacheKey).toBe(GOLDEN.evidence);
+    const none = candidateFingerprint(golden('golden-none', [unattributedRepo()]), MODEL);
+    expect(none).toMatchObject({ noEvidence: true, cacheKey: GOLDEN.noEvidence });
+    const posting = { ...job('x'), jobKey: 'golden-job', text: 'Write unit tests' };
+    expect(jobFingerprint(posting, MODEL).cacheKey).toBe(GOLDEN.job);
+  });
+
+  it('change with resume text only when attributed evidence exists', () => {
+    const resume = { text: 'Claims Kubernetes expertise' };
+    const withResume = (c: ReturnType<typeof golden>) => ({ ...c, resume });
+    const evidence = golden('golden-evidence');
+    expect(candidateFingerprint(withResume(evidence), MODEL).cacheKey).not.toBe(GOLDEN.evidence);
+    const none = golden('golden-none', [unattributedRepo()]);
+    expect(candidateFingerprint(withResume(none), MODEL).cacheKey).toBe(GOLDEN.noEvidence);
+  });
 });
 
 describe.runIf(up)('assessments (Postgres)', () => {
@@ -453,5 +489,60 @@ describe.runIf(up)('assessments (Postgres)', () => {
       requirements: [{ verdict: 'partly_met', priority: 3, prioritySource: 'override' }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses resume text in Contributor mode before claiming, leaving no pending row', async () => {
+    const fetchMock = fakeFetch();
+    const subject = { kind: 'demo' as const, key: `${RUN}-resume` };
+    const prepared = fixtureCandidate([attributedRepo()], { subject, resume: { text: 'Resume' } });
+    await expect(
+      analyzeCandidate(prepared, { ...OPTIONS, fetch: fetchMock as never }),
+    ).rejects.toMatchObject({ code: 'contributor_not_permitted' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const { cacheKey } = candidateFingerprint(prepared);
+    const rows = await db
+      .select()
+      .from(skillAssessments)
+      .where(eq(skillAssessments.cacheKey, cacheKey));
+    expect(rows).toEqual([]);
+  });
+
+  it('still saves a no-evidence result with a resume, without any request', async () => {
+    const fetchMock = fakeFetch();
+    const subject = { kind: 'demo' as const, key: `${RUN}-resume-none` };
+    const prepared = fixtureCandidate([unattributedRepo()], {
+      subject,
+      resume: { text: 'Resume' },
+    });
+    const result = await analyzeCandidate(prepared, { ...OPTIONS, fetch: fetchMock as never });
+    expect(result.assessment.status).toBe('no_attributed_evidence');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('looks results up by exact fingerprint, never returning older inputs as current', async () => {
+    const subject = { kind: 'demo' as const, key: `${RUN}-lookup` };
+    const first = fixtureCandidate([attributedRepo()], { subject });
+    const key = (c: typeof first) => candidateFingerprint(c).cacheKey;
+    expect(await assessmentByFingerprint('candidate', subject, key(first))).toEqual({
+      state: 'not_started',
+    });
+    const fetchMock = fakeFetch(completion(CANDIDATE_OUTPUT));
+    await analyzeCandidate(first, { ...OPTIONS, fetch: fetchMock as never });
+    expect(await assessmentByFingerprint('candidate', subject, key(first))).toMatchObject({
+      state: 'current',
+      assessment: { subject, status: 'complete' },
+    });
+    const changed = fixtureCandidate(
+      [attributedRepo(), fixtureRepo('three', [{ path: 'x.ts', content: sourceLines(3) }], [])],
+      { subject },
+    );
+    expect(await assessmentByFingerprint('candidate', subject, key(changed))).toEqual({
+      state: 'outdated',
+    });
+    // Another subject's row is never returned for this subject.
+    const other = { kind: 'demo' as const, key: `${RUN}-lookup-other` };
+    expect(await assessmentByFingerprint('candidate', other, key(first))).toEqual({
+      state: 'not_started',
+    });
   });
 });

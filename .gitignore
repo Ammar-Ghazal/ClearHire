@@ -5,3 +5,9 @@ dist/
 !.env.example
 *.pem
 .DS_Store
+data/demo/prepared/
+data/demo/benchmarks/
+data/demo/results/
+scripts/render-skill-benchmark.py
+apps/api/scripts/benchmark-skills.ts
+apps/api/scripts/review-benchmark.ts

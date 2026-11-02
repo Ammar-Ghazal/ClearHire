@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { MUSE_MODELS, type MuseModel } from './lib/muse.js';
 
 // In development, read the repo-root .env (found by walking up from this file).
 // In production there is no .env; the host injects env vars.
@@ -40,6 +41,19 @@ const EnvSchema = z.object({
   GITHUB_APP_SLUG: optional,
   GITHUB_CLIENT_ID: optional,
   GITHUB_CLIENT_SECRET: optional,
+  // Read-only token for preparing public demo repositories; never a user's token.
+  GITHUB_DEMO_TOKEN: optional,
+  META_API_KEY: optional,
+  // Chosen explicitly: Contributor for approved public test data, Standard for the final demo.
+  META_MODEL: optional.refine((v) => v === undefined || (MUSE_MODELS as string[]).includes(v), {
+    message: `META_MODEL must be one of: ${MUSE_MODELS.join(', ')}`,
+  }),
+  META_BASE_URL: z.string().url().default('https://api.meta.ai/v1'),
+  META_DAILY_CAP_USD: z.coerce.number().positive().default(5),
+  META_SUBJECT_CAP_USD: z.coerce.number().positive().default(1),
+}).refine((e) => !e.META_API_KEY || e.META_MODEL, {
+  message: 'META_MODEL must be set explicitly when META_API_KEY is set',
+  path: ['META_MODEL'],
 });
 
 const parsed = EnvSchema.safeParse(process.env);
@@ -51,6 +65,7 @@ if (!parsed.success) {
 
 export const env = {
   ...parsed.data,
+  META_MODEL: parsed.data.META_MODEL as MuseModel | undefined,
   WEB_ORIGIN: parsed.data.WEB_ORIGIN.replace(/\/$/, ''),
   API_PUBLIC_URL: parsed.data.API_PUBLIC_URL.replace(/\/$/, ''),
 };
@@ -59,3 +74,6 @@ export const isProduction = env.NODE_ENV === 'production';
 
 /** GitHub sign-in needs the client id and secret; everything else can come later. */
 export const githubConfigured = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+
+/** Muse calls need a key and an explicitly chosen model; nothing switches models automatically. */
+export const museConfigured = Boolean(env.META_API_KEY && env.META_MODEL);

@@ -5,6 +5,9 @@ import type { RepoSnapshot } from './ingest.js';
 import { filterEntry } from './ingest-filter.js';
 import type { AnalysisPackets, Chunk } from './packets.js';
 
+/** Bump when attribution rules change, so cached analyses built on older results are not reused. */
+export const ATTRIBUTION_VERSION = 1;
+
 export interface CandidateIdentity {
   githubUserId: number;
   login: string;

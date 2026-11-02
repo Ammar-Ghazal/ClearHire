@@ -157,7 +157,7 @@ export function splitLines(content: string): Line[] {
 }
 
 const joinLines = (lines: Line[]) => lines.map((l) => l.text + l.eol).join('');
-const sha256Hex = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
+export const sha256Hex = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 // ---- Classification ----

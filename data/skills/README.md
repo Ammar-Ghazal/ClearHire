@@ -2,7 +2,7 @@
 
 Catalogue ID: `clearhire-skills-v1`. **100 skills across 10 categories.**
 
-The JSON file is the canonical machine-readable catalogue. Candidate analysis and job parsing should reference the same `catalogue_id` and `skill_id`. IDs are stable within v1; label edits must not silently change IDs, and IDs must not be reused for different capabilities. This defines vocabulary, not a scoring rubric.
+**Superseded as the canonical source by v2:** `packages/shared/src/skill-catalogue.ts` (`clearhire-skills` version 2) keeps these exact IDs and adds a definition and skill-specific level 1–3 criteria for each skill. This JSON file is frozen as the reference for ID stability; a test fails if v2 changes or reorders an ID. Candidate analysis and job parsing should reference the same `catalogue_id` and `skill_id`. IDs are stable within v1; label edits must not silently change IDs, and IDs must not be reused for different capabilities. This defines vocabulary, not a scoring rubric.
 
 Languages and tools such as Python, React, AWS and PostgreSQL are supporting tags. A tool tag alone does not demonstrate an engineering capability.
 

@@ -1,0 +1,1152 @@
+{
+  "version": 1,
+  "assembled_on": "2026-11-01",
+  "profile_count_with_resume_or_portfolio": 25,
+  "additional_user_profiles_without_resume": 3,
+  "counts_by_provenance": {
+    "user_supplied_source_links_unverified": 8,
+    "previously_researched_public_profiles": 4,
+    "new_low_star_public_profiles": 13
+  },
+  "notes": [
+    "Resume and portfolio sources are links, not downloaded PDFs.",
+    "User-supplied links have not been independently verified and may include LinkedIn, personal websites or organizations.",
+    "Stars describe public popularity, not skill or hiring suitability; no candidate scores are assigned.",
+    "Only public metadata and links were collected; contribution ownership must be established before personal skill assessment.",
+    "All profiles are demo source examples, not job applicants; job preferences remain unknown."
+  ],
+  "profiles": [
+    {
+      "name": "Sindre Sorhus",
+      "github_url": "https://github.com/sindresorhus",
+      "resume_url": "https://standardresume.co/r/sindre-sorhus",
+      "resume_type": "hosted_resume",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Andrej Karpathy",
+      "github_url": "https://github.com/karpathy",
+      "resume_url": "https://karpathy.ai",
+      "resume_type": "personal_website",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Donne Martin",
+      "github_url": "https://github.com/donnemartin",
+      "resume_url": "https://www.linkedin.com/in/donnemartin/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Kamran Ahmed",
+      "github_url": "https://github.com/nilbuild",
+      "resume_url": "https://kamran.fyi",
+      "resume_type": "personal_website",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Chao Huang",
+      "github_url": "https://github.com/HKUDS",
+      "resume_url": "https://sites.google.com/view/chaoh",
+      "resume_type": "personal_website",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "John Washam",
+      "github_url": "https://github.com/jwasham",
+      "resume_url": "https://www.linkedin.com/in/johnawasham/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Anas Zahou",
+      "github_url": "https://github.com/Skeurz",
+      "resume_url": "https://www.linkedin.com/in/anas-zahou-3b4005199/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Ruben Edery",
+      "github_url": "https://github.com/rubenedery",
+      "resume_url": "https://www.linkedin.com/in/ruben-edery/",
+      "resume_type": "linkedin",
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Anthony Fu",
+      "github_url": "https://github.com/antfu",
+      "resume_url": "https://resume.antfu.me/resume.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://resume.antfu.me/",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "focus": "Frontend and developer tooling",
+      "selected_repositories": [
+        {
+          "full_name": "antfu/antfu.me",
+          "url": "https://github.com/antfu/antfu.me",
+          "github_repository_id": 332422464,
+          "owner_login": "antfu",
+          "owner_id": 11247099,
+          "default_branch": "main",
+          "pinned_commit_sha": "0be14a9ef6fdad5ccaf72010e8e1fed508920102",
+          "license_spdx": "MIT",
+          "description": "My personal website"
+        }
+      ],
+      "account_star_stats": null,
+      "job_preferences": null,
+      "source": "Earlier public developer research",
+      "status": "public_demo_source_not_an_applicant",
+      "resume_freshness": "historical; do not treat present-tense statements as current employment"
+    },
+    {
+      "name": "Lea Verou",
+      "github_url": "https://github.com/LeaVerou",
+      "resume_url": "https://cv.verou.me/",
+      "resume_type": "html",
+      "identity_source_url": "https://cv.verou.me/",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "focus": "Web platform and frontend libraries",
+      "selected_repositories": [
+        {
+          "full_name": "LeaVerou/bliss",
+          "url": "https://github.com/LeaVerou/bliss",
+          "github_repository_id": 40975535,
+          "owner_login": "LeaVerou",
+          "owner_id": 175836,
+          "default_branch": "master",
+          "pinned_commit_sha": "497bd7b9c21774e5c154209a45d8ceb168715e03",
+          "license_spdx": "MIT",
+          "description": "Blissful JavaScript"
+        },
+        {
+          "full_name": "LeaVerou/multirange",
+          "url": "https://github.com/LeaVerou/multirange",
+          "github_repository_id": 60071419,
+          "owner_login": "LeaVerou",
+          "owner_id": 175836,
+          "default_branch": "gh-pages",
+          "pinned_commit_sha": "8441905196989a03b3fda3c360439f2a2b4858bd",
+          "license_spdx": "MIT",
+          "description": "A tiny polyfill for HTML5 multi-handle sliders"
+        }
+      ],
+      "account_star_stats": null,
+      "job_preferences": null,
+      "source": "Earlier public developer research",
+      "status": "public_demo_source_not_an_applicant",
+      "resume_freshness": "date unknown; contains historical/current inconsistencies; use as published snapshot"
+    },
+    {
+      "name": "Gaël Varoquaux",
+      "github_url": "https://github.com/GaelVaroquaux",
+      "resume_url": "https://gael-varoquaux.info/pages/attachments/gael_varoquaux_cv.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://gael-varoquaux.info/about.html",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "focus": "Scientific Python and machine learning",
+      "selected_repositories": [
+        {
+          "full_name": "GaelVaroquaux/interpreting_ml_tuto",
+          "url": "https://github.com/GaelVaroquaux/interpreting_ml_tuto",
+          "github_repository_id": 131182664,
+          "owner_login": "GaelVaroquaux",
+          "owner_id": 208217,
+          "default_branch": "master",
+          "pinned_commit_sha": "cfcbeaa98e8752d78ddef98473d48478062be612",
+          "license_spdx": "NOASSERTION",
+          "description": "Tutorial on interpreting and understanding machine learning models"
+        },
+        {
+          "full_name": "GaelVaroquaux/stats_in_python_tutorial",
+          "url": "https://github.com/GaelVaroquaux/stats_in_python_tutorial",
+          "github_repository_id": 41358677,
+          "owner_login": "GaelVaroquaux",
+          "owner_id": 208217,
+          "default_branch": "master",
+          "pinned_commit_sha": "19ff74c2cad71231bafe819afdbf1480fab23da6",
+          "license_spdx": null,
+          "description": "Material for the statistics in Python tutorial"
+        }
+      ],
+      "account_star_stats": null,
+      "job_preferences": null,
+      "source": "Earlier public developer research",
+      "status": "public_demo_source_not_an_applicant",
+      "resume_freshness": "historical; official page describes CV as infrequently updated"
+    },
+    {
+      "name": "Ismael Marin",
+      "github_url": "https://github.com/igmarin",
+      "resume_url": "https://ismaelmarin.dev/resume/ismael-marin-resume.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://ismaelmarin.dev/resume/",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "focus": "Ruby/backend and AI developer tooling",
+      "selected_repositories": [
+        {
+          "full_name": "igmarin/rails-ai-bridge",
+          "url": "https://github.com/igmarin/rails-ai-bridge",
+          "github_repository_id": 1187723514,
+          "owner_login": "igmarin",
+          "owner_id": 39272,
+          "default_branch": "main",
+          "pinned_commit_sha": "ced03340e7a5a69a21b6594072ee0d854a52ac81",
+          "license_spdx": "MIT",
+          "description": "Zero-config MCP server that gives AI assistants live, read-only knowledge of Rails apps"
+        },
+        {
+          "full_name": "igmarin/ruby-skill-bench",
+          "url": "https://github.com/igmarin/ruby-skill-bench",
+          "github_repository_id": 1230303277,
+          "owner_login": "igmarin",
+          "owner_id": 39272,
+          "default_branch": "main",
+          "pinned_commit_sha": "ca98a50e1f3ac9407c5dc834b16a975d971a5e28",
+          "license_spdx": "MIT",
+          "description": "Evaluation engine that measures the ROI of context for AI agent skills. Ruby · blind LLM judge"
+        }
+      ],
+      "account_star_stats": null,
+      "job_preferences": null,
+      "source": "Earlier public developer research",
+      "status": "public_demo_source_not_an_applicant",
+      "resume_freshness": "date unknown; resume includes work through April 2026"
+    },
+    {
+      "name": "Sahil Aukhaj",
+      "github_url": "https://github.com/SahilAukhaj",
+      "resume_url": "https://sahilaukhaj.github.io/assets/Sahil_Aukhaj_Resume.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://sahilaukhaj.github.io/",
+      "focus": "Full stack / early-career projects",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "selected_repositories": [
+        {
+          "full_name": "SahilAukhaj/RouletteGame",
+          "url": "https://github.com/SahilAukhaj/RouletteGame",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1128662777,
+          "owner_login": "SahilAukhaj",
+          "owner_account_id": 251894813,
+          "default_branch": "main",
+          "pinned_commit_sha": "7e60b56bd142ce47b6ccf8864ed396f4fdb0cb67",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 1,
+          "example_source_files": [
+            "Roulette Game/RouletteGame/src/com/deathiscoming/casino/RouletteGame.java"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "SahilAukhaj/SahilAukhaj.github.io",
+          "url": "https://github.com/SahilAukhaj/SahilAukhaj.github.io",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1364943173,
+          "owner_login": "SahilAukhaj",
+          "owner_account_id": 251894813,
+          "default_branch": "main",
+          "pinned_commit_sha": "e0aa51bae4da7193631efb0eeefdb082e2b1e208",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 3,
+          "example_source_files": [
+            "index.html",
+            "js/laptop3d.js",
+            "js/main.js"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 3,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Andrew Pleeter",
+      "github_url": "https://github.com/anpl1623",
+      "resume_url": "https://andrewpleeter.us/resume.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://andrewpleeter.us/resume",
+      "focus": "Full stack / backend systems",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "selected_repositories": [
+        {
+          "full_name": "anpl1623/XRECSYSTEM",
+          "url": "https://github.com/anpl1623/XRECSYSTEM",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1159649983,
+          "owner_login": "anpl1623",
+          "owner_account_id": 95309613,
+          "default_branch": "main",
+          "pinned_commit_sha": "be97feaefb817a3c4275be2f10866124869951df",
+          "license_spdx": "MIT",
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 22,
+          "example_source_files": [
+            "backend/algorithm/ranking.py",
+            "backend/algorithm/semantic.py",
+            "backend/database.py"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "anpl1623/MCP_WEBSCRAPER",
+          "url": "https://github.com/anpl1623/MCP_WEBSCRAPER",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1110249011,
+          "owner_login": "anpl1623",
+          "owner_account_id": 95309613,
+          "default_branch": "main",
+          "pinned_commit_sha": "bb4e5dcc35bce90993223238e8f4bbc5c8a655cb",
+          "license_spdx": "MIT",
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 2,
+          "example_source_files": [
+            "server.py",
+            "test_scrape.py"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 8,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Jhon Rocha",
+      "github_url": "https://github.com/jhonrocha",
+      "resume_url": "https://jhonrocha.github.io/resume.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://jhonrocha.github.io/",
+      "focus": "Backend / cloud",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "selected_repositories": [
+        {
+          "full_name": "jhonrocha/mood-fm",
+          "url": "https://github.com/jhonrocha/mood-fm",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 740198499,
+          "owner_login": "jhonrocha",
+          "owner_account_id": 4550128,
+          "default_branch": "main",
+          "pinned_commit_sha": "fa97f0892f79c659c3d542385625716e10b34d5b",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 5,
+          "example_source_files": [
+            "app/layout.tsx",
+            "app/page.tsx",
+            "next.config.js"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "jhonrocha/azure-explorations",
+          "url": "https://github.com/jhonrocha/azure-explorations",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 469561134,
+          "owner_login": "jhonrocha",
+          "owner_account_id": 4550128,
+          "default_branch": "main",
+          "pinned_commit_sha": "5501e4ddf61b429439abe2e7f0f6359c016a5f25",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 14,
+          "example_source_files": [
+            ".eslintrc.js",
+            "__tests__/main-test.ts",
+            "custom/src/main.rs"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 37,
+        "stars_total": 7,
+        "max_repo_stars": 6,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Subhan Nadeem",
+      "github_url": "https://github.com/Subhan2117",
+      "resume_url": "https://subhan-portfolio-navy.vercel.app/",
+      "resume_type": "portfolio",
+      "identity_source_url": "https://subhan-portfolio-navy.vercel.app/",
+      "focus": "Frontend / full stack",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "selected_repositories": [
+        {
+          "full_name": "Subhan2117/wayfinder",
+          "url": "https://github.com/Subhan2117/wayfinder",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1217379406,
+          "owner_login": "Subhan2117",
+          "owner_account_id": 153469651,
+          "default_branch": "main",
+          "pinned_commit_sha": "b31dae5c3b9f15285ebd51f2bcb15e1a5543ff2b",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 24,
+          "example_source_files": [
+            "index.html",
+            "src/composables/useTripDays.js",
+            "src/data/mock/destinations.js"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "Subhan2117/re-hardware-store",
+          "url": "https://github.com/Subhan2117/re-hardware-store",
+          "stars": 1,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1059724046,
+          "owner_login": "Subhan2117",
+          "owner_account_id": 153469651,
+          "default_branch": "main",
+          "pinned_commit_sha": "0c597218f170a790ec65d3365c802ef367cc363a",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 81,
+          "example_source_files": [
+            "app/(admin)/admin/categories/CategoriesClient.jsx",
+            "app/(admin)/admin/categories/[id]/page.jsx",
+            "app/(admin)/admin/categories/page.jsx"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 7,
+        "stars_total": 2,
+        "max_repo_stars": 1,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Shubham Kadam",
+      "github_url": "https://github.com/H-R-Wells2",
+      "resume_url": "https://www.hrwells.dev/",
+      "resume_type": "portfolio",
+      "identity_source_url": "https://www.hrwells.dev/",
+      "focus": "Full stack / backend",
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "selected_repositories": [
+        {
+          "full_name": "H-R-Wells2/social-parivartan-backend",
+          "url": "https://github.com/H-R-Wells2/social-parivartan-backend",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 667749460,
+          "owner_login": "H-R-Wells2",
+          "owner_account_id": 119859128,
+          "default_branch": "main",
+          "pinned_commit_sha": "e6f74a3d111f0f53808c931d1a998224e6d1266e",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 5,
+          "example_source_files": [
+            "db.js",
+            "index.js",
+            "middleware/fetchuser.js"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "H-R-Wells2/nextjs-authentication",
+          "url": "https://github.com/H-R-Wells2/nextjs-authentication",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1026856470,
+          "owner_login": "H-R-Wells2",
+          "owner_account_id": 119859128,
+          "default_branch": "main",
+          "pinned_commit_sha": "6e4ca20ec52d137c9130d2e15030de02a08c584a",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 32,
+          "example_source_files": [
+            "actions/auth.ts",
+            "app/(auth)/forgot-password/page.tsx",
+            "app/(auth)/profile/page.tsx"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 44,
+        "stars_total": 21,
+        "max_repo_stars": 5,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Subeen Chang",
+      "github_url": "https://github.com/shuobyian",
+      "resume_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md",
+      "resume_type": "github_resume_markdown",
+      "identity_source_url": "https://github.com/shuobyian/portfolio",
+      "focus": "Frontend / TypeScript",
+      "selected_repositories": [
+        {
+          "full_name": "shuobyian/portfolio",
+          "url": "https://github.com/shuobyian/portfolio",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1178442860,
+          "owner_login": "shuobyian",
+          "owner_account_id": 28919466,
+          "default_branch": "main",
+          "pinned_commit_sha": "30bc08a927950d1e66fdc793027065fe4e479ae2",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 61,
+          "example_source_files": [
+            "next.config.ts",
+            "src/app/about/page.tsx",
+            "src/app/blog/[slug]/page.tsx"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "shuobyian/inhaapp",
+          "url": "https://github.com/shuobyian/inhaapp",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 111896721,
+          "owner_login": "shuobyian",
+          "owner_account_id": 28919466,
+          "default_branch": "master",
+          "pinned_commit_sha": "52aa0332603184cbfad556a1574c8406cf5492bf",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 3,
+          "example_source_files": [
+            "app/src/androidTest/java/com/example/shuob/a171124/ExampleInstrumentedTest.java",
+            "app/src/main/java/com/example/shuob/a171124/MainActivity.java",
+            "app/src/test/java/com/example/shuob/a171124/ExampleUnitTest.java"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 14,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Ishan Sachdeva",
+      "github_url": "https://github.com/Ishan-sa",
+      "resume_url": "https://ishansa.dev/resume/resume.pdf",
+      "resume_type": "pdf",
+      "identity_source_url": "https://ishansa.dev/",
+      "focus": "Full stack / AI tooling",
+      "selected_repositories": [
+        {
+          "full_name": "Ishan-sa/framezero",
+          "url": "https://github.com/Ishan-sa/framezero",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1353782945,
+          "owner_login": "Ishan-sa",
+          "owner_account_id": 90339349,
+          "default_branch": "main",
+          "pinned_commit_sha": "4d98d45dec1cd3b42b8a2ba65c1c470df5ba352d",
+          "license_spdx": "MIT",
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 16,
+          "example_source_files": [
+            "bin/aggregate.py",
+            "bin/corpus.py",
+            "bin/fetch.py"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "Ishan-sa/agent-tape",
+          "url": "https://github.com/Ishan-sa/agent-tape",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1174649500,
+          "owner_login": "Ishan-sa",
+          "owner_account_id": 90339349,
+          "default_branch": "main",
+          "pinned_commit_sha": "1145269369de301c146f96c1e0e0cafd029a5019",
+          "license_spdx": "MIT",
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 37,
+          "example_source_files": [
+            "packages/cli/src/commands/claude-hook.ts",
+            "packages/cli/src/commands/diff.ts",
+            "packages/cli/src/commands/event.ts"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 11,
+        "stars_total": 6,
+        "max_repo_stars": 4,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Tadiwanashe Dzvoti",
+      "github_url": "https://github.com/TDD66",
+      "resume_url": "https://tadiwanashedzvoti.com/",
+      "resume_type": "portfolio",
+      "identity_source_url": "https://tadiwanashedzvoti.com/",
+      "focus": "Backend / cloud / DevOps",
+      "selected_repositories": [
+        {
+          "full_name": "TDD66/BankSystemJava",
+          "url": "https://github.com/TDD66/BankSystemJava",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 790650971,
+          "owner_login": "TDD66",
+          "owner_account_id": 79865373,
+          "default_branch": "main",
+          "pinned_commit_sha": "ef31ada3f4239cd33c1807f2fb3c97e41d9d851c",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 2,
+          "example_source_files": [
+            "src/main/java/com/example/BankProject/BankProjectApplication.java",
+            "src/test/java/com/example/BankProject/BankProjectApplicationTests.java"
+          ],
+          "tree_truncated": false
+        },
+        {
+          "full_name": "TDD66/portfolio-infra",
+          "url": "https://github.com/TDD66/portfolio-infra",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1250178725,
+          "owner_login": "TDD66",
+          "owner_account_id": 79865373,
+          "default_branch": "main",
+          "pinned_commit_sha": "dbd0efe9f142f9f69c244ed81c5b863d90ba37db",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 4,
+          "example_source_files": [
+            ".github/workflows/terraform.yml",
+            "generated.tf",
+            "imports.tf",
+            "provider.tf"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "identity_verification_method": "Developer's public résumé or portfolio links the GitHub account.",
+      "stars_observed_on": "2026-11-01",
+      "github_stars_note": "Stars listed per selected repository; not an engineering grade.",
+      "job_preferences": null,
+      "source": "Codex research, public sources",
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 29,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "status": "public_demo_source_not_an_applicant",
+      "source_verification": "self-published resume or portfolio links the matching GitHub account"
+    },
+    {
+      "name": "Viet Nguyen",
+      "github_username": "viet-in-tech",
+      "github_url": "https://github.com/viet-in-tech",
+      "resume_url": "https://viet-in-tech.github.io/resume.html",
+      "resume_type": "html_resume",
+      "focus": "Machine learning, model APIs, Docker",
+      "identity_source_url": "https://viet-in-tech.github.io/resume.html",
+      "identity_evidence": "Self-published resume links directly to github.com/viet-in-tech.",
+      "github_stars": {
+        "metric": "maximum stars on any owned non-fork public repository",
+        "value": 0,
+        "verification_method": "GitHub repository search with fork:false and star thresholds"
+      },
+      "selected_repositories": [
+        {
+          "full_name": "viet-in-tech/tripleten-docker-containerization",
+          "url": "https://github.com/viet-in-tech/tripleten-docker-containerization",
+          "stars": 0,
+          "fork": false,
+          "visibility": "public",
+          "default_branch": "main",
+          "commit_sha": "6df656aefe91601e49d3f9ccc40a8bf781db4b81",
+          "license": null,
+          "tree_verified": true,
+          "tree_truncated": false,
+          "code_proof": {
+            "path": "serving/app.py",
+            "url": "https://github.com/viet-in-tech/tripleten-docker-containerization/blob/6df656aefe91601e49d3f9ccc40a8bf781db4b81/serving/app.py",
+            "bytes": 7415,
+            "observation": "Python source fetched; FastAPI app with Pydantic, pandas and joblib model loading."
+          }
+        }
+      ],
+      "checked_on": "2026-11-01",
+      "notes": [
+        "Public demo reference; not an actual applicant. Job preferences unknown.",
+        "Star counts describe popularity, not a competency grade."
+      ],
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 25,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "job_preferences": null,
+      "status": "public_demo_source_not_an_applicant",
+      "source": "Codex research, public sources"
+    },
+    {
+      "name": "Ibraheem Obanla",
+      "github_username": "tolatechy",
+      "github_url": "https://github.com/tolatechy",
+      "resume_url": "https://ibraheemobanla.com/resume/Ibraheem_Obanla_Resume.pdf",
+      "resume_type": "pdf_resume",
+      "focus": "Data science, ML, security analytics",
+      "identity_source_url": "https://ibraheemobanla.com/resume/Ibraheem_Obanla_Resume.pdf",
+      "identity_evidence": "Self-published PDF names Ibraheem Obanla and links github.com/tolatechy; homepage also links the account.",
+      "github_stars": {
+        "metric": "maximum stars on any owned non-fork public repository",
+        "value": 0,
+        "verification_method": "GitHub repository search with fork:false and star thresholds"
+      },
+      "selected_repositories": [
+        {
+          "full_name": "tolatechy/Misinformation-Detector",
+          "url": "https://github.com/tolatechy/Misinformation-Detector",
+          "stars": 0,
+          "stars_scope": "selected_repository",
+          "github_repository_id": 1347789706,
+          "owner_login": "tolatechy",
+          "owner_account_id": 77504230,
+          "default_branch": "main",
+          "pinned_commit_sha": "c5136bbd6383e429d3591267b780634f02f94617",
+          "license_spdx": null,
+          "public": true,
+          "fork": false,
+          "archived": false,
+          "source_code_files": 2,
+          "example_source_files": [
+            "Testing.py",
+            "app.py"
+          ],
+          "tree_truncated": false
+        }
+      ],
+      "checked_on": "2026-11-01",
+      "notes": [
+        "Public demo reference; not an actual applicant. Job preferences unknown.",
+        "Star counts describe popularity, not a competency grade.",
+        "Selected the smaller Python source repository so current ingestion can inspect it."
+      ],
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 20,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "job_preferences": null,
+      "status": "public_demo_source_not_an_applicant",
+      "source": "Codex research, public sources"
+    },
+    {
+      "name": "Derek Rodriguez",
+      "github_username": "dwrodri",
+      "github_url": "https://github.com/dwrodri",
+      "resume_url": "https://derekrodriguez.dev/resume/",
+      "resume_type": "html_resume",
+      "focus": "ML systems, MLOps, Python/C++",
+      "identity_source_url": "https://derekrodriguez.dev/resume/",
+      "identity_evidence": "Self-published resume links directly to github.com/dwrodri.",
+      "github_stars": {
+        "metric": "maximum stars on any owned non-fork public repository",
+        "value": 11,
+        "verification_method": "GitHub repository search with fork:false and star thresholds"
+      },
+      "selected_repositories": [
+        {
+          "full_name": "dwrodri/PyPelt",
+          "url": "https://github.com/dwrodri/PyPelt",
+          "stars": 5,
+          "fork": false,
+          "visibility": "public",
+          "default_branch": "master",
+          "commit_sha": "2af3d43af34689fddde7bd76d029f2136ffa6cdb",
+          "license": "MIT",
+          "tree_verified": true,
+          "tree_truncated": false,
+          "code_proof": {
+            "path": "pypelt/fuzzy_processors.py",
+            "url": "https://github.com/dwrodri/PyPelt/blob/2af3d43af34689fddde7bd76d029f2136ffa6cdb/pypelt/fuzzy_processors.py",
+            "bytes": 4490,
+            "observation": "Python source fetched; fuzzification, rule inference and weighted-average defuzzification functions."
+          }
+        }
+      ],
+      "checked_on": "2026-11-01",
+      "notes": [
+        "Public demo reference; not an actual applicant. Job preferences unknown.",
+        "Star counts describe popularity, not a competency grade."
+      ],
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 58,
+        "stars_total": 26,
+        "max_repo_stars": 11,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "job_preferences": null,
+      "status": "public_demo_source_not_an_applicant",
+      "source": "Codex research, public sources"
+    },
+    {
+      "name": "Emir Afwan",
+      "github_login": "emirafwan",
+      "github_url": "https://github.com/emirafwan",
+      "resume_url": "https://emirafwan.github.io/Emir_Afwan_Resume.pdf",
+      "resume_type": "pdf_resume",
+      "portfolio_url": "https://emirafwan.github.io/",
+      "focus": [
+        "cloud infrastructure",
+        "DevOps",
+        "Terraform"
+      ],
+      "identity_proof_url": "https://emirafwan.github.io/",
+      "identity_notes": "Portfolio links the resume PDF and GitHub account.",
+      "checked_on": "2026-11-01",
+      "account_star_metric": {
+        "scope": "largest owned non-fork public repository",
+        "max_stars": 0,
+        "top_repository": "emirafwan/chrome-extensions",
+        "source_url": "https://api.github.com/search/repositories?q=user%3Aemirafwan+fork%3Afalse&sort=stars&order=desc&per_page=1"
+      },
+      "selected_repositories": [
+        {
+          "full_name": "emirafwan/terramate-baseline",
+          "url": "https://github.com/emirafwan/terramate-baseline",
+          "stargazers_count": 0,
+          "fork": false,
+          "visibility": "public",
+          "default_branch": "main",
+          "commit_sha": "e9d526255ce716b0657e4ac103debaec2516ab44",
+          "language": "HCL",
+          "license": null,
+          "tree_nonempty": true,
+          "source_proof_path": "modules/aws/vpc/main.tf",
+          "source_proof_url": "https://github.com/emirafwan/terramate-baseline/blob/e9d526255ce716b0657e4ac103debaec2516ab44/modules/aws/vpc/main.tf",
+          "source_inspected": true,
+          "metadata_source_url": "https://api.github.com/repos/emirafwan/terramate-baseline"
+        }
+      ],
+      "job_preferences": null,
+      "notes": [
+        "Public example, not an actual applicant.",
+        "Stars measure popularity, not competency."
+      ],
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 8,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "status": "public_demo_source_not_an_applicant",
+      "source": "Codex research, public sources"
+    },
+    {
+      "name": "Akul Gopal Devali",
+      "github_login": "akuldevali",
+      "github_url": "https://github.com/akuldevali",
+      "resume_url": "https://akuldevali.fyi/Akul-Resume.pdf",
+      "resume_type": "pdf_resume",
+      "portfolio_url": "https://akuldevali.fyi/",
+      "focus": [
+        "platform engineering",
+        "DevOps",
+        "MLOps"
+      ],
+      "identity_proof_url": "https://akuldevali.fyi/",
+      "identity_notes": "Portfolio links the resume PDF, GitHub account and selected project.",
+      "checked_on": "2026-11-01",
+      "account_star_metric": {
+        "scope": "largest owned non-fork public repository",
+        "max_stars": 0,
+        "top_repository": "akuldevali/AIOps",
+        "source_url": "https://api.github.com/search/repositories?q=user%3Aakuldevali+fork%3Afalse&sort=stars&order=desc&per_page=1"
+      },
+      "selected_repositories": [
+        {
+          "full_name": "akuldevali/MLOps_ChurnPrediction",
+          "url": "https://github.com/akuldevali/MLOps_ChurnPrediction",
+          "stargazers_count": 0,
+          "fork": false,
+          "visibility": "public",
+          "default_branch": "main",
+          "commit_sha": "62354d5a4806516ab08a94e7755b6bce97515244",
+          "language": "Python",
+          "license": null,
+          "tree_nonempty": true,
+          "source_proof_path": "train.py",
+          "source_proof_url": "https://github.com/akuldevali/MLOps_ChurnPrediction/blob/62354d5a4806516ab08a94e7755b6bce97515244/train.py",
+          "source_inspected": true,
+          "metadata_source_url": "https://api.github.com/repos/akuldevali/MLOps_ChurnPrediction"
+        }
+      ],
+      "job_preferences": null,
+      "notes": [
+        "Public example, not an actual applicant.",
+        "Stars measure popularity, not competency."
+      ],
+      "account_star_stats": {
+        "owned_nonfork_public_repo_count": 32,
+        "stars_total": 0,
+        "max_repo_stars": 0,
+        "complete": true,
+        "observed_on": "2026-11-01",
+        "scope": "Sum of stars across all owned, public, non-fork repositories"
+      },
+      "identity_match_verified": true,
+      "public_repositories_verified": true,
+      "status": "public_demo_source_not_an_applicant",
+      "source": "Codex research, public sources"
+    }
+  ],
+  "user_profiles_without_resume": [
+    {
+      "name": "Latifa Lhadifi",
+      "github_url": "https://github.com/LatifaLhafidi",
+      "resume_url": null,
+      "resume_type": null,
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Nwigrat",
+      "github_url": "https://github.com/Nwigrat",
+      "resume_url": null,
+      "resume_type": null,
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    },
+    {
+      "name": "Elkhoudrifadoua",
+      "github_url": "https://github.com/Elkhoudrifadoua",
+      "resume_url": null,
+      "resume_type": null,
+      "identity_match_verified": false,
+      "public_repositories_verified": false,
+      "job_preferences": null,
+      "source": "User supplied",
+      "status": "public_demo_source_not_an_applicant",
+      "selected_repositories": [],
+      "account_star_stats": null
+    }
+  ]
+}

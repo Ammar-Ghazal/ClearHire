@@ -1,5 +1,20 @@
-// Skeleton schema: only what sign-in needs. Ingestion and analysis tables come later (R-4.3).
-import { bigint, boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+// Sign-in tables, plus the minimal Muse analysis store: assessments (cache, results and single-flight
+// lock in one row), per-attempt spend records, atomic budgets and employer priority overrides.
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 export const users = pgTable(
   'users',
@@ -58,4 +73,91 @@ export const sessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   },
   (t) => [index('sessions_user_id_idx').on(t.userId)],
+);
+
+export const skillAssessments = pgTable(
+  'skill_assessments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind', { enum: ['candidate', 'job'] }).notNull(),
+    // Demo subjects are fixture keys, never rows in users, so there is no foreign key.
+    subjectKind: text('subject_kind', { enum: ['demo', 'user'] }).notNull(),
+    subjectKey: text('subject_key').notNull(),
+    cacheKey: text('cache_key').notNull(),
+    model: text('model').notNull(),
+    catalogueVersion: integer('catalogue_version').notNull(),
+    status: text('status', {
+      enum: ['pending', 'complete', 'partial', 'no_attributed_evidence', 'failed'],
+    }).notNull(),
+    errorCode: text('error_code'),
+    rawOutput: jsonb('raw_output'),
+    // Redacted evidence text with locations, hashes and attribution: results stay inspectable and
+    // re-verifiable without fetching a repository that may have changed.
+    evidence: jsonb('evidence'),
+    result: jsonb('result'),
+    verifierVersion: integer('verifier_version'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('skill_assessments_cache_key_key').on(t.cacheKey),
+    index('skill_assessments_subject_idx').on(t.kind, t.subjectKind, t.subjectKey, t.model),
+  ],
+);
+
+export const museCalls = pgTable(
+  'muse_calls',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    assessmentId: uuid('assessment_id')
+      .notNull()
+      .references(() => skillAssessments.id, { onDelete: 'cascade' }),
+    model: text('model').notNull(),
+    attempt: integer('attempt').notNull(),
+    scopes: jsonb('scopes').$type<string[]>().notNull(),
+    // 'ambiguous' means the charge is uncertain: the reservation became estimated spend.
+    settlement: text('settlement', { enum: ['reserved', 'settled', 'released', 'ambiguous'] }).notNull(),
+    costSource: text('cost_source', { enum: ['usage', 'reservation', 'none'] }),
+    reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull(),
+    costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }),
+    httpStatus: integer('http_status'),
+    finishReason: text('finish_reason'),
+    promptTokens: integer('prompt_tokens'),
+    cachedTokens: integer('cached_tokens'),
+    completionTokens: integer('completion_tokens'),
+    reasoningTokens: integer('reasoning_tokens'),
+    latencyMs: integer('latency_ms'),
+    responseId: text('response_id'),
+    errorCode: text('error_code'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+  },
+  (t) => [index('muse_calls_assessment_id_idx').on(t.assessmentId)],
+);
+
+export const museSpendBudgets = pgTable(
+  'muse_spend_budgets',
+  {
+    scope: text('scope').primaryKey(),
+    capMicroUsd: bigint('cap_micro_usd', { mode: 'number' }).notNull(),
+    reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull().default(0),
+    spentMicroUsd: bigint('spent_micro_usd', { mode: 'number' }).notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('muse_spend_budgets_nonnegative', sql`${t.reservedMicroUsd} >= 0`)],
+);
+
+export const jobPriorityOverrides = pgTable(
+  'job_priority_overrides',
+  {
+    jobKey: text('job_key').notNull(),
+    skillId: text('skill_id').notNull(),
+    priority: integer('priority').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.jobKey, t.skillId] }),
+    check('job_priority_overrides_priority_range', sql`${t.priority} between 0 and 3`),
+  ],
 );

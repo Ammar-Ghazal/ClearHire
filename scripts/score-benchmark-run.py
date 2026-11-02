@@ -7,6 +7,8 @@ omitted marker is level 0 and shared zeros count. Full precision is kept; displa
   Detection agreement: correct when both levels are positive or both are 0.
   Level closeness:     credit = 1 - |Muse - evaluator| / 3.
 These are evaluator-agreement scores, not proven accuracy.
+Muse results and any evaluator's reviews must cover every benchmark packet exactly once; a
+before/after comparison also requires both evaluators on both runs.
 """
 import argparse
 import json
@@ -39,8 +41,32 @@ def check_formulas():
     assert round(detect, 2) == 99.0 and round(close, 2) == 99.33
 
 
+def by_packet(items, source, expected):
+    """Map packet id -> item. Rejects duplicate, missing or unknown packet ids."""
+    found = {}
+    for packet_id, item in items:
+        if packet_id in found:
+            raise ValueError(f'{source}: duplicate packet {packet_id}')
+        found[packet_id] = item
+    missing, unknown = sorted(set(expected) - set(found)), sorted(set(found) - set(expected))
+    if missing or unknown:
+        raise ValueError(f'{source}: {len(missing)} missing packets {missing[:5]}, unknown {unknown[:5]}')
+    return found
+
+
+def check_packets():
+    assert by_packet([('a', 1), ('b', 2)], 't', ['a', 'b']) == {'a': 1, 'b': 2}
+    for items in ([('a', 1)], [('a', 1), ('a', 1), ('b', 2)], [('a', 1), ('b', 2), ('c', 3)]):
+        try:
+            by_packet(items, 't', ['a', 'b'])
+        except ValueError:
+            continue
+        raise AssertionError(f'accepted {items}')
+
+
 def main():
     check_formulas()
+    check_packets()
     parser = argparse.ArgumentParser()
     parser.add_argument('--run', required=True)
     parser.add_argument('--compare')
@@ -48,29 +74,34 @@ def main():
     run_dir = ROOT / 'runs' / args.run
     cases = json.loads((ROOT / 'benchmark.json').read_text())['cases']
     skills = [s['id'] for s in json.loads((ROOT / 'catalogue-snapshot.json').read_text())['skills']]
-    muse = {r['case']: {s['skill_id']: s for s in r['output']['skills']}
-            for r in json.loads((run_dir / 'muse-results.json').read_text())['results']}
-    reviews = {e: {c['id']: {m['skill_id']: m for m in c['markers']}
-                   for p in sorted(run_dir.glob(f'{e}-*.json'))
-                   for c in json.loads(p.read_text())['cases']} for e in EVALUATORS}
+    ids = [c['id'] for c in cases]
+    muse = by_packet(((r['case'], {s['skill_id']: s for s in r['output']['skills']})
+                      for r in json.loads((run_dir / 'muse-results.json').read_text())['results']),
+                     f'{args.run} Muse results', ids)
+    # An evaluator with no review files is reported as not reviewed; a partial review is an error.
+    reviews = {}
+    for e in EVALUATORS:
+        files = sorted(run_dir.glob(f'{e}-*.json'))
+        reviews[e] = by_packet(((c['id'], {m['skill_id']: m for m in c['markers']})
+                                for p in files for c in json.loads(p.read_text())['cases']),
+                               f'{args.run} {e} reviews', ids) if files else {}
     level = lambda record: record['level'] if record else 0
 
     overall, per_packet, rows, disputes = {}, [], [], []
     for e in EVALUATORS:
-        reviewed = [c for c in cases if c['id'] in reviews[e]]
-        if not reviewed:
+        if not reviews[e]:
             overall[e] = None
             continue
         detect_sum = close_sum = 0.0
-        for c in reviewed:
+        for c in cases:
             for skill in skills:
                 m, x = level(muse[c['id']].get(skill)), reviews[e][c['id']][skill]['expected_level']
                 detect_sum += detection(m, x)
                 close_sum += closeness(m, x)
-        pairs = len(reviewed) * len(skills)
+        pairs = len(cases) * len(skills)
         overall[e] = {'detection_agreement': 100 * detect_sum / pairs,
                       'level_closeness': 100 * close_sum / pairs,
-                      'packets': len(reviewed), 'pairs': pairs}
+                      'packets': len(cases), 'pairs': pairs}
 
     for c in cases:
         key = c['id']
@@ -102,6 +133,11 @@ def main():
     comparison = None
     if args.compare:
         before = json.loads((ROOT / 'runs' / args.compare / 'scores.json').read_text())
+        for name, scores in ((args.compare, before['overall']), (args.run, overall)):
+            for e in EVALUATORS:
+                if (scores.get(e) or {}).get('packets') != len(cases):
+                    raise ValueError(f'Cannot compare: {name} lacks complete {e} reviews '
+                                     f'for all {len(cases)} packets')
         comparison = {'before': args.compare, 'after': args.run,
                       'scores': {e: {'before': before['overall'].get(e), 'after': overall[e]}
                                  for e in EVALUATORS}}
@@ -136,4 +172,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except ValueError as error:
+        raise SystemExit(f'error: {error}')

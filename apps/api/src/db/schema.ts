@@ -82,18 +82,35 @@ export const sessions = pgTable(
 export interface InputManifest {
   repos: { repo: string; commitSha: string | null; unavailable: string | null }[];
   resumeSha256: string | null;
+  /** Repository rows: the file paths this request assessed as its own (citable) evidence. */
+  paths?: string[];
+  /** Repository rows: `limited` when history was capped, a lookup failed or an author is unresolved. */
+  attribution?: 'complete' | 'limited';
+  /** Overlay rows: one disputed skill, re-examined at `repos[0].commitSha`. */
+  reassessment?: {
+    skillId: string;
+    outcome: 'level' | 'removed' | 'inconclusive';
+    rationale: string;
+    paths: string[];
+    justificationSha256: string;
+  };
 }
 
 export const skillAssessments = pgTable(
   'skill_assessments',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    kind: text('kind', { enum: ['candidate', 'job'] }).notNull(),
+    // A 'repository' row is one counted request (or a no-evidence result) for one repository of a
+    // candidate; 'candidate' rows combine them. Repository rows keep the candidate's subject key.
+    kind: text('kind', { enum: ['candidate', 'job', 'repository'] }).notNull(),
     // Demo subjects are fixture keys, never rows in users, so there is no foreign key.
     subjectKind: text('subject_kind', { enum: ['demo', 'user'] }).notNull(),
     subjectKey: text('subject_key').notNull(),
     /** Code-free input key: equal keys mean the same inputs, not a reusable lock. */
     cacheKey: text('cache_key').notNull(),
+    /** Repository rows: GitHub repository id and part (`batch:i/n:<digest>:req:<digest>`, ...). */
+    repoId: bigint('repo_id', { mode: 'number' }),
+    part: text('part'),
     model: text('model').notNull(),
     catalogueVersion: integer('catalogue_version').notNull(),
     status: text('status', {
@@ -115,7 +132,51 @@ export const skillAssessments = pgTable(
       .on(t.kind, t.subjectKind, t.subjectKey)
       .where(sql`${t.status} = 'pending'`),
     index('skill_assessments_subject_idx').on(t.kind, t.subjectKind, t.subjectKey, t.model),
+    index('skill_assessments_repo_idx').on(t.subjectKind, t.subjectKey, t.repoId),
   ],
+);
+
+/** Progress of one repository's pinned commit: download batches and which are fully processed. */
+export interface RepositoryProgress {
+  commitSha: string;
+  /** Digest of each batch's file paths, in batch order. */
+  batches: string[];
+  done: number[];
+  /** Only request rows completed at or after this instant count (a fresh regrade resets it). */
+  since: string;
+}
+
+/**
+ * The repositories chosen for one subject (at most 10 active) and their grading progress. A removed
+ * repository is deactivated, never deleted, so its saved results can be reused if it returns.
+ */
+export const repositorySelections = pgTable(
+  'repository_selections',
+  {
+    subjectKind: text('subject_kind', { enum: ['demo', 'user'] }).notNull(),
+    subjectKey: text('subject_key').notNull(),
+    repoId: bigint('repo_id', { mode: 'number' }).notNull(),
+    fullName: text('full_name').notNull(),
+    position: integer('position').notNull(),
+    source: text('source', { enum: ['demo_default', 'user'] }).notNull(),
+    active: boolean('active').notNull().default(true),
+    /** Last code push GitHub reported in a listing; a push after `assessedAt` flags a change. */
+    pushedAt: timestamp('pushed_at', { withTimezone: true }),
+    /** The commit whose processed requests the combined markers use, and since when. */
+    assessedCommit: text('assessed_commit'),
+    assessedAt: timestamp('assessed_at', { withTimezone: true }),
+    assessedSince: timestamp('assessed_since', { withTimezone: true }),
+    /** Set while this repository's markers come from an older combined result, validated once. */
+    legacyAssessmentId: uuid('legacy_assessment_id'),
+    progress: jsonb('progress').$type<RepositoryProgress>(),
+    /** An explicit regrade not yet started: kept until fresh progress is saved, so it survives a wait. */
+    freshRequestedAt: timestamp('fresh_requested_at', { withTimezone: true }),
+    /** Last failure code; permanent ones wait for an explicit regrade or a selection change. */
+    lastError: text('last_error'),
+    githubFailures: integer('github_failures').notNull().default(0),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.subjectKind, t.subjectKey, t.repoId] })],
 );
 
 export const museCalls = pgTable(
@@ -249,6 +310,10 @@ export const demoCandidates = pgTable('demo_candidates', {
   resumePages: integer('resume_pages'),
   // Never sent to clients; only flagged-free extractions are stored.
   resumeText: text('resume_text'),
+  /** When default repositories were chosen; set even when none qualified, so it runs once. */
+  selectionCheckedAt: timestamp('selection_checked_at', { withTimezone: true }),
+  /** Last metadata-only listing, which refreshes push times behind change warnings. */
+  metadataRefreshedAt: timestamp('metadata_refreshed_at', { withTimezone: true }),
   ...runColumns,
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

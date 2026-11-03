@@ -6,6 +6,7 @@ import {
   type PacketOptions,
   DEFAULT_PACKET_OPTIONS,
   buildPackets,
+  contextPaths,
   redactString,
   resolveOptions,
   splitLines,
@@ -600,5 +601,31 @@ describe('determinism and safety', () => {
     });
     expect(out.chunks.find((c) => c.path === 'src/run.ts')!.text).toBe(hostile);
     expect(out.manifests[0]!.scripts).toEqual(['postinstall']);
+  });
+});
+
+describe('contextPaths', () => {
+  it('adds manifests, one hop of resolved imports and name-paired tests, never the files themselves', () => {
+    const tree = [
+      'package.json',
+      'pkg/pyproject.toml',
+      'src/a.ts',
+      'src/b.ts',
+      'src/deep.ts',
+      'src/a.test.ts',
+      'tests/test_util.py',
+      'src/util.py',
+      'src/other.ts',
+    ];
+    const files = [
+      { path: 'src/a.ts', content: "import { b } from './b';\nexport const a = b;\n" },
+      { path: 'src/util.py', content: 'x = 1\n' },
+    ];
+    expect(contextPaths(files, tree)).toEqual([
+      'package.json',
+      'pkg/pyproject.toml',
+      'src/a.test.ts',
+      'src/b.ts',
+    ]);
   });
 });

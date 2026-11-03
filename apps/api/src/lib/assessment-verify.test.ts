@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { scrubQuotedSource, verifyCandidate, verifyJob } from './assessment-verify.js';
+import {
+  scrubQuotedSource,
+  verifyCandidate,
+  verifyJob,
+  verifyReassessment,
+} from './assessment-verify.js';
 import { buildCandidateEvidence } from './candidate-evidence.js';
 import { fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
-import type { CandidateOutput, JobOutput } from './muse.js';
+import type { CandidateOutput, JobOutput, ReassessmentOutput } from './muse.js';
 
 const repo = fixtureRepo(
   'one',
@@ -262,5 +267,53 @@ describe('scrubQuotedSource', () => {
     expect(text).not.toContain(quoted);
     expect(scrubbed.skills[0]!.rationale).toBe('Because [source excerpt removed]');
     expect(scrubbed.repositories[0]!.contribution!.summary).toBe('Wrote constants');
+  });
+});
+
+describe('verifyReassessment', () => {
+  const dispute = { skillId: 'unit-testing', priorPaths: ['src/a.ts'] };
+  const verdict = (
+    conclusion: ReassessmentOutput['conclusion'],
+    skills: CandidateOutput['skills'] = [],
+  ) => verifyReassessment({ ...output({ skills }), conclusion }, evidence, META, dispute);
+
+  it('accepts a verified level, higher or lower, for the disputed skill only', () => {
+    const up = verdict({ kind: 'level', rationale: 'More shown', refs: [] }, [
+      skill('unit-testing', ['a1'], 3),
+      skill('api-design', ['a1'], 3),
+    ]);
+    expect(up.outcome).toBe('level');
+    expect(up.assessment.skills.map((s) => [s.skillId, s.level])).toEqual([['unit-testing', 3]]);
+    // A level whose refs do not verify is not a level.
+    const invalid = verdict({ kind: 'level', rationale: 'x', refs: [] }, [
+      skill('unit-testing', ['c1'], 3),
+    ]);
+    expect(invalid).toMatchObject({ outcome: 'inconclusive', assessment: { skills: [] } });
+  });
+
+  it('removes a marker only on an explicit, supported not_demonstrated conclusion', () => {
+    const removed = verdict({ kind: 'not_demonstrated', rationale: 'Only constants', refs: ['c1'] });
+    expect(removed).toMatchObject({ outcome: 'removed', rationale: 'Only constants' });
+    for (const conclusion of [
+      { kind: 'not_demonstrated' as const, rationale: ' ', refs: ['c1'] },
+      { kind: 'not_demonstrated' as const, rationale: 'No', refs: [] },
+      { kind: 'not_demonstrated' as const, rationale: 'No', refs: ['c99'] },
+      { kind: 'inconclusive' as const, rationale: 'Unclear', refs: ['c1'] },
+    ]) {
+      expect(verdict(conclusion).outcome).toBe('inconclusive');
+    }
+    // Previously cited files that were not sent cannot support a removal.
+    const missing = verifyReassessment(
+      { ...output(), conclusion: { kind: 'not_demonstrated', rationale: 'No', refs: ['c1'] } },
+      evidence,
+      META,
+      { skillId: 'unit-testing', priorPaths: ['src/a.ts', 'src/gone.ts'] },
+    );
+    expect(missing.outcome).toBe('inconclusive');
+    // A skill the model still lists contradicts not_demonstrated.
+    const both = verdict({ kind: 'not_demonstrated', rationale: 'No', refs: ['c1'] }, [
+      skill('unit-testing', ['a1'], 1),
+    ]);
+    expect(both.outcome).toBe('inconclusive');
   });
 });

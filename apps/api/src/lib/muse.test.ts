@@ -7,6 +7,8 @@ import {
   CONTEXT_WINDOW,
   costMicroUsd,
   countInputTokens,
+  countTokens,
+  COUNT_ATTEMPTS,
   createRateLimiter,
   DEFAULT_INPUT_TOKEN_CEILING,
   MUSE_RATE_LIMITS,
@@ -259,7 +261,7 @@ describe('countInputTokens', () => {
     const fetchMock = vi.fn(
       async () => new Response(JSON.stringify({ object: 'response.input_tokens', input_tokens: 9597 })),
     );
-    expect(await countInputTokens(CONFIG, candidate, fetchMock as never)).toBe(9597);
+    expect(await countInputTokens(CONFIG, candidate, fetchMock as never)).toEqual({ tokens: 9597 });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://muse.test/v1/responses/input_tokens');
     expect(JSON.parse(init.body as string)).toEqual({
@@ -276,14 +278,69 @@ describe('countInputTokens', () => {
     });
   });
 
-  it('returns null rather than a guess when no count is available', async () => {
-    for (const response of [failure(404), new Response('not json'), new TypeError('failed')]) {
+  it('reports a failure category rather than a guess when no count is available', async () => {
+    const cases: [Response | Error, string][] = [
+      [failure(404), 'http_4xx'],
+      [failure(429), 'rate_limited'],
+      [failure(503), 'http_5xx'],
+      [new Response('not json'), 'invalid_body'],
+      [new TypeError('failed'), 'network'],
+      [Object.assign(new Error('t'), { name: 'TimeoutError' }), 'timeout'],
+    ];
+    for (const [response, category] of cases) {
       const fetchMock = vi.fn(async () => {
         if (response instanceof Error) throw response;
         return response;
       });
-      expect(await countInputTokens(CONFIG, body, fetchMock as never)).toBeNull();
+      expect(await countInputTokens(CONFIG, body, fetchMock as never)).toMatchObject({
+        failure: category,
+      });
     }
+  });
+});
+
+describe('countTokens', () => {
+  const sleep = vi.fn(async () => {});
+  const responses = (...list: (() => Response)[]) => {
+    const fetchMock = vi.fn(async () => (list.shift() ?? (() => failure(500)))());
+    return fetchMock;
+  };
+  const counted = () => new Response(JSON.stringify({ input_tokens: 42 }));
+
+  it('retries transient failures a bounded number of times, then counts', async () => {
+    const outcomes: unknown[] = [];
+    const fetchMock = responses(() => failure(503), () => failure(429, { 'retry-after': '2' }), counted);
+    const tokens = await countTokens(CONFIG, body, {
+      fetch: fetchMock as never,
+      sleep,
+      onCount: (o) => outcomes.push(o),
+    });
+    expect(tokens).toBe(42);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Retry-After is honoured; otherwise a short backoff.
+    expect(sleep.mock.calls.map((c) => (c as unknown[])[0])).toEqual([1000, 2000]);
+    expect(outcomes).toEqual([
+      { outcome: 'counted', failure: null, attempts: 3, latencyMs: expect.any(Number) },
+    ]);
+  });
+
+  it('fails visibly and retryably, never falling back to an estimate', async () => {
+    const outcomes: { failure: unknown; attempts: unknown }[] = [];
+    const always = vi.fn(async () => failure(500));
+    await expect(
+      countTokens(CONFIG, body, { fetch: always as never, sleep, onCount: (o) => outcomes.push(o) }),
+    ).rejects.toMatchObject({ code: 'count_unavailable' });
+    expect(always).toHaveBeenCalledTimes(COUNT_ATTEMPTS);
+    // A permanent failure is not retried.
+    const bad = vi.fn(async () => failure(400));
+    await expect(
+      countTokens(CONFIG, body, { fetch: bad as never, sleep, onCount: (o) => outcomes.push(o) }),
+    ).rejects.toMatchObject({ code: 'count_unavailable' });
+    expect(bad).toHaveBeenCalledTimes(1);
+    expect(outcomes.map((o) => [o.failure, o.attempts])).toEqual([
+      ['http_5xx', 3],
+      ['http_4xx', 1],
+    ]);
   });
 });
 

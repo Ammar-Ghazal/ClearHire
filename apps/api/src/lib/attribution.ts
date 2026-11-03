@@ -224,6 +224,31 @@ export function isAuthoredByCandidate(commit: CommitSummary, candidate: Candidat
   return commitActors(commit, candidate).some((a) => a.role !== 'committer' && isCandidate(a));
 }
 
+/** True when an inspected commit's author or coauthor resolved to no account: it may be anyone. */
+export function hasUnresolvedAuthors(
+  collected: CollectedContributions,
+  candidate: CandidateIdentity,
+): boolean {
+  return collected.commits.some((c) =>
+    commitActors(c, candidate).some((a) => a.role !== 'committer' && a.resolution.kind === 'unknown'),
+  );
+}
+
+/**
+ * True only when inspected history conclusively holds nothing of the candidate's: it is uncapped
+ * and gap-free, no commit names the candidate, and every author and coauthor resolved to someone.
+ */
+export function conclusivelyNoContributions(
+  collected: CollectedContributions,
+  candidate: CandidateIdentity,
+): boolean {
+  return (
+    collected.gaps.length === 0 &&
+    !collected.commits.some((c) => isAuthoredByCandidate(c, candidate)) &&
+    !hasUnresolvedAuthors(collected, candidate)
+  );
+}
+
 // ---- Patches ----
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;

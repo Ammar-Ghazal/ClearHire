@@ -13,6 +13,7 @@ import {
   type CandidateOutput,
   type JobOutput,
   type MuseModel,
+  type ReassessmentOutput,
 } from './muse.js';
 
 /** Recorded with each result; raw model output is not stored, so a change needs a regrade. */
@@ -144,6 +145,52 @@ export function verifyCandidate(
     repositories,
     skills,
     unsupportedSkills,
+  };
+}
+
+/**
+ * A reassessment's outcome for one disputed skill. `level` needs the skill itself to verify.
+ * `removed` needs an explicit `not_demonstrated` conclusion with a rationale, refs that all resolve,
+ * and those refs covering every file the marker previously cited, all of which were sent. Anything
+ * else (missing or invalid output, unresolved refs, incomplete evidence) is `inconclusive`.
+ */
+export function verifyReassessment(
+  output: ReassessmentOutput,
+  evidence: CandidateEvidence,
+  meta: { subject: CandidateAssessment['subject']; model: MuseModel },
+  dispute: { skillId: string; priorPaths: string[] },
+): {
+  assessment: CandidateAssessment;
+  outcome: 'level' | 'removed' | 'inconclusive';
+  rationale: string;
+} {
+  const verified = verifyCandidate(
+    { ...output, skills: output.skills.filter((s) => s.skill_id === dispute.skillId) },
+    evidence,
+    meta,
+  );
+  const skill = verified.skills.find((s) => s.skillId === dispute.skillId) ?? null;
+  const { conclusion } = output;
+  const items = new Map(evidence.items.map((i) => [i.ref, i]));
+  const sent = new Set(evidence.items.map((i) => i.path));
+  const cited = new Set(conclusion.refs.map((r) => items.get(r)?.path));
+  let outcome: 'level' | 'removed' | 'inconclusive' = 'inconclusive';
+  if (conclusion.kind === 'level' && skill) outcome = 'level';
+  else if (
+    conclusion.kind === 'not_demonstrated' &&
+    !skill &&
+    conclusion.rationale.trim() !== '' &&
+    conclusion.refs.length > 0 &&
+    conclusion.refs.every((r) => items.has(r)) &&
+    dispute.priorPaths.length > 0 &&
+    dispute.priorPaths.every((p) => sent.has(p) && cited.has(p))
+  ) {
+    outcome = 'removed';
+  }
+  return {
+    assessment: { ...verified, skills: outcome === 'level' ? [skill!] : [] },
+    outcome,
+    rationale: conclusion.rationale,
   };
 }
 

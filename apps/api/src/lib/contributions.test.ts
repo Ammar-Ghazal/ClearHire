@@ -252,6 +252,21 @@ describe('collectContributions', () => {
     expect((await ingestError(run(octokit))).code).toBe(code);
   });
 
+  it('defers on a quota response in optional enrichment instead of recording a gap', async () => {
+    const { octokit, rest } = fakeOctokit([{ sha: 'mine' }]);
+    rest.repos.listPullRequestsAssociatedWithCommit.mockRejectedValueOnce(
+      httpError(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1900000000' }),
+    );
+    const err = await ingestError(run(octokit));
+    expect(err).toMatchObject({ code: 'rate_limited', resetAt: 1_900_000_000_000 });
+    // A permission denial in the same step is still only a gap.
+    const denied = fakeOctokit([{ sha: 'mine' }]);
+    denied.rest.repos.listPullRequestsAssociatedWithCommit.mockRejectedValueOnce(httpError(403));
+    expect((await run(denied.octokit)).gaps).toEqual([
+      { reason: 'pr_lookup_incomplete', commitSha: 'mine' },
+    ]);
+  });
+
   it('rejects invalid limits by name', async () => {
     const { octokit } = fakeOctokit([]);
     await expect(run(octokit, { maxRequests: 1 })).rejects.toThrow('Invalid collection limit: maxRequests');

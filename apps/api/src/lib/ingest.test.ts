@@ -1,6 +1,12 @@
 import type { Octokit } from '@octokit/rest';
 import { describe, expect, it, vi } from 'vitest';
-import { BLOB_CONCURRENCY, DEFAULT_LIMITS, IngestError, ingestRepo } from './ingest.js';
+import {
+  BLOB_CONCURRENCY,
+  DEFAULT_LIMITS,
+  IngestError,
+  ingestRepo,
+  quotaResetAt,
+} from './ingest.js';
 
 const TOKEN = 'ghu_secret_token';
 const target = { owner: 'octo', repo: 'demo' };
@@ -170,6 +176,7 @@ describe('ingestRepo', () => {
     ['getBlob', httpError(429, { 'retry-after': '30' }), 'rate_limited'],
     ['getBlob', httpError(429), 'rate_limited'],
     ['getCommit', httpError(403), 'forbidden'],
+    ['getBlob', httpError(403, { 'retry-after': '5' }), 'rate_limited'],
     ['getTree', httpError(401), 'forbidden'],
     ['getBlob', httpError(503), 'upstream_error'],
     ['getBlob', new TypeError('fetch failed'), 'upstream_error'],
@@ -215,5 +222,22 @@ describe('ingestRepo concurrency', () => {
     });
     expect((await ingestError(ingestRepo(octokit, target))).code).toBe('upstream_error');
     expect(rest.git.getBlob.mock.calls.length).toBeLessThanOrEqual(BLOB_CONCURRENCY);
+  });
+});
+
+describe('quotaResetAt', () => {
+  const now = 1_000_000;
+  const withBody = (status: number, message: string) =>
+    Object.assign(new Error('x'), { status, response: { headers: {}, data: { message } } });
+
+  it('tells quota responses from permission denials, with the time to resume', () => {
+    expect(quotaResetAt(httpError(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '2000' }), now)).toBe(2_000_000);
+    expect(quotaResetAt(httpError(429, { 'retry-after': '30' }), now)).toBe(now + 30_000);
+    // Secondary limits may come with no headers: wait at least a minute.
+    expect(quotaResetAt(withBody(403, 'You have exceeded a secondary rate limit'), now)).toBe(now + 60_000);
+    expect(quotaResetAt(httpError(429), now)).toBe(now + 60_000);
+    expect(quotaResetAt(withBody(403, 'Resource not accessible by integration'), now)).toBeNull();
+    expect(quotaResetAt(httpError(403), now)).toBeNull();
+    expect(quotaResetAt(httpError(500), now)).toBeNull();
   });
 });

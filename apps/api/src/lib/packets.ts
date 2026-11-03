@@ -594,6 +594,53 @@ function importCandidates(isPython: boolean, dirs: string[], text: string): stri
   return match[3]!.split(',').flatMap((part) => resolve([part.trim().split(/\s+/)[0]!]));
 }
 
+/**
+ * Context for files downloaded without the rest of their repository: dependency manifests, files
+ * the given ones import (one hop, resolved against `treePaths`), and tests paired by name. Uses the
+ * same resolution as buildPackets. Returns paths not already in `files`, sorted.
+ */
+export function contextPaths(
+  files: { path: string; content: string }[],
+  treePaths: readonly string[],
+): string[] {
+  const tree = new Set(treePaths);
+  const have = new Set(files.map((f) => f.path));
+  const out = new Set<string>();
+  const split = (path: string) => {
+    const dirs = path.split('/');
+    return { dirs, name: dirs.pop()! };
+  };
+  for (const path of treePaths) {
+    const { dirs, name } = split(path);
+    if (classify(dirs, name) === 'manifest') out.add(path);
+  }
+  const stems = new Set<string>();
+  for (const f of files) {
+    const { dirs, name } = split(f.path);
+    const kind = classify(dirs, name);
+    if (kind !== 'source' && kind !== 'test') continue;
+    if (kind === 'source') {
+      const dot = name.lastIndexOf('.');
+      stems.add(`${dirs.join('/')}\0${dot > 0 ? name.slice(0, dot) : name}`);
+    }
+    for (const line of splitLines(f.content)) {
+      for (const candidates of importCandidates(name.endsWith('.py'), dirs, line.text)) {
+        const hit = candidates.find((c) => tree.has(c));
+        if (hit !== undefined) out.add(hit);
+      }
+    }
+  }
+  for (const path of treePaths) {
+    const { dirs, name } = split(path);
+    const stem = testStem(name);
+    if (stem === null) continue;
+    const lastTestDir = dirs.findLastIndex((d) => TEST_DIRS.has(d));
+    const dir = (lastTestDir === -1 ? dirs : dirs.slice(0, lastTestDir)).join('/');
+    if (stems.has(`${dir}\0${stem}`)) out.add(path);
+  }
+  return [...out].filter((p) => !have.has(p)).sort(byCodeUnit);
+}
+
 // ---- Assembly ----
 
 interface FileState {

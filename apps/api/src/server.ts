@@ -1,7 +1,7 @@
 import { buildApp } from './app.js';
 import { pool } from './db/client.js';
 import { env, githubConfigured } from './env.js';
-import { recoverStaleRuns, safeErrorCode, startAnalysisWorker } from './lib/demo-runner.js';
+import { loggedDeps, recoverStaleRuns, startAnalysisWorker } from './lib/demo-runner.js';
 
 const app = await buildApp();
 
@@ -12,9 +12,7 @@ await app.listen({ host: '0.0.0.0', port: env.PORT });
 await recoverStaleRuns().catch((err: unknown) => app.log.warn({ err }, 'Run recovery skipped'));
 
 // Grades every subject without a result yet, one at a time; failures are never retried.
-const stopWorker = startAnalysisWorker({
-  onError: (err) => app.log.warn({ code: safeErrorCode(err) }, 'Demo analysis failed'),
-});
+const stopWorker = startAnalysisWorker(loggedDeps(app.log));
 
 if (!githubConfigured) {
   app.log.warn('GitHub sign-in is not configured yet: set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.');

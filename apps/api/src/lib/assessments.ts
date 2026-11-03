@@ -12,12 +12,14 @@ import {
   type MatchResult,
   type PriorityOverride,
 } from '@clearhire/shared';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   jobPriorityOverrides,
   museCalls,
   museSpendBudgets,
+  repositorySelections,
   skillAssessments,
   type InputManifest,
 } from '../db/schema.js';
@@ -27,6 +29,7 @@ import {
   scrubQuotedSource,
   verifyCandidate,
   verifyJob,
+  verifyReassessment,
   VERIFIER_VERSION,
   type JobInput,
 } from './assessment-verify.js';
@@ -37,8 +40,17 @@ import {
   SELECTION_VERSION,
   type CandidateEvidence,
   type DataUse,
+  type Omission,
   type PreparedCandidate,
+  type PreparedRepo,
 } from './candidate-evidence.js';
+import {
+  applyOverlays,
+  combineParts,
+  legacyView,
+  prefixRefs,
+  type Overlay,
+} from './candidate-combine.js';
 import { mergeAssessments, packParts } from './candidate-parts.js';
 import { matchAssessments } from './matching.js';
 import {
@@ -50,21 +62,25 @@ import {
   canonicalJson,
   catalogueHash,
   CONTEXT_WINDOW,
-  countInputTokens,
+  countTokens,
   DEFAULT_INPUT_TOKEN_CEILING,
   estimateTokens,
   jobBody,
   JobOutputSchema,
   JOB_MAX_COMPLETION_TOKENS,
   MuseError,
+  reassessmentBody,
+  ReassessmentOutputSchema,
   PROMPT_VERSION,
   SCHEMA_VERSION,
   type AttemptSettlement,
   type CandidateOutput,
   type ChatBody,
+  type CountOutcome,
   type MuseLedger,
   type MuseModel,
   type RateLimiter,
+  type ReassessmentOutput,
 } from './muse.js';
 import { CLEANER_VERSION, sha256Hex } from './packets.js';
 
@@ -72,8 +88,8 @@ export const CANDIDATE_TIMEOUT_MS = 600_000;
 export const JOB_TIMEOUT_MS = 120_000;
 export const HEARTBEAT_MS = 30_000;
 /** A pending row is stale only when its runner has not refreshed it for this long. */
-export const staleAfterMs = (kind: 'candidate' | 'job') =>
-  (kind === 'candidate' ? CANDIDATE_TIMEOUT_MS : JOB_TIMEOUT_MS) + 120_000;
+export const staleAfterMs = (kind: 'candidate' | 'job' | 'repository') =>
+  (kind === 'job' ? JOB_TIMEOUT_MS : CANDIDATE_TIMEOUT_MS) + 120_000;
 
 const SAVED = ['complete', 'partial', 'no_attributed_evidence'] as const;
 type Saved = (typeof SAVED)[number];
@@ -97,6 +113,8 @@ export interface RunOptions {
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   limiter?: RateLimiter;
+  /** Told each token count's outcome, failure category and timing; never request contents. */
+  onCount?: (outcome: CountOutcome) => void;
   timeoutMs?: number;
   /** Prefix for budget scopes, so tests never touch the real daily budget. */
   budgetNamespace?: string;
@@ -305,7 +323,7 @@ async function failStale(rowId: string): Promise<boolean> {
 
 /** Recovers stale pending assessments (all, or one subject's); never resends their requests. */
 export async function recoverStaleAssessments(subject?: {
-  kind: 'candidate' | 'job';
+  kind: 'candidate' | 'job' | 'repository';
   subjectKind: 'demo' | 'user';
   subjectKey: string;
 }): Promise<number> {
@@ -439,7 +457,9 @@ async function runClaimed<O, A>(
   },
   scopes: { scope: string; cap: number }[],
   verify: (outputs: O[]) => A & { status?: string },
-  fields: Partial<typeof skillAssessments.$inferInsert> = {},
+  fields:
+    | Partial<typeof skillAssessments.$inferInsert>
+    | ((assessment: A) => Partial<typeof skillAssessments.$inferInsert>) = {},
 ): Promise<A> {
   const heartbeat = setInterval(() => {
     void db
@@ -472,7 +492,8 @@ async function runClaimed<O, A>(
     }
     const assessment = verify(outputs);
     const status = (assessment.status === 'partial' ? 'partial' : 'complete') as Saved;
-    const saved = await complete(row.id, status, { ...fields, result: assessment }, row.startedAt);
+    const extra = typeof fields === 'function' ? fields(assessment) : fields;
+    const saved = await complete(row.id, status, { ...extra, result: assessment }, row.startedAt);
     if (!saved)
       throw new MuseError('previous_failure', 'This run was superseded; its result was discarded');
     return assessment;
@@ -497,10 +518,11 @@ interface CandidateRequest {
 const PACKING_HEADROOM = 0.97;
 
 /**
- * Plans the requests for all selected repositories and the resume, each measured on its whole body:
+ * Plans the requests for the prepared repositories and the resume, each counted on its whole body:
  * catalogue, rules, schema, resume, dependencies and code. Everything goes in one request when it
  * fits under the ceiling; otherwise the evidence is split across requests (see packParts), so no
- * code is truncated or dropped.
+ * code is truncated or dropped. With `scope.primary`, only those files are packed for their own
+ * sake. Every request is counted: no character estimate ever authorizes one.
  */
 async function planCandidate(
   prepared: PreparedCandidate,
@@ -509,22 +531,27 @@ async function planCandidate(
   options: RunOptions,
   /** Data-use check that must pass before a count sends anything to Muse. */
   beforeSend: () => void,
+  scope?: { evidence: CandidateEvidence; primary: ReadonlySet<string> },
 ): Promise<{ evidence: CandidateEvidence; requests: CandidateRequest[] }> {
   const resume = prepared.resume?.text ?? null;
   const fixed = estimateTokens(candidateBody(model, '', resume));
   if (fixed >= ceiling)
     throw new MuseError('input_too_large', 'Catalogue, rules and resume exceed the ceiling');
-  const evidence = buildCandidateEvidence(prepared, { evidenceChars: Number.MAX_SAFE_INTEGER });
+  const evidence =
+    scope?.evidence ?? buildCandidateEvidence(prepared, { evidenceChars: Number.MAX_SAFE_INTEGER });
   const whole = candidateBody(model, evidence.rendered, resume);
   const estimate = estimateTokens(whole);
-  // Below half the ceiling even a 2x underestimate fits; nearer, count exactly. A failed count
-  // keeps the estimate, which overstated every recorded request. Nothing is sent without evidence.
-  if (estimate <= ceiling / 2 || evidence.citableCount === 0) {
+  // Nothing is sent without evidence.
+  if (evidence.citableCount === 0) {
     return { evidence, requests: [{ body: whole, inputTokens: estimate, keys: null }] };
   }
   beforeSend();
-  const count = async (body: ChatBody) =>
-    (await countInputTokens(museConfig(), body, options.fetch)) ?? estimateTokens(body);
+  const count = (body: ChatBody) =>
+    countTokens(museConfig(), body, {
+      ...(options.fetch && { fetch: options.fetch }),
+      ...(options.sleep && { sleep: options.sleep }),
+      ...(options.onCount && { onCount: options.onCount }),
+    });
   const counted = await count(whole);
   if (counted <= ceiling) {
     return { evidence, requests: [{ body: whole, inputTokens: counted, keys: null }] };
@@ -542,7 +569,7 @@ async function planCandidate(
         `this request shows.\n${renderEvidence(evidence.layout, keys, index === 0)}`,
       resume,
     );
-  const pending = packParts(evidence.layout, tokens, budget);
+  const pending = packParts(evidence.layout, tokens, budget, scope?.primary);
   const checked: { keys: Set<string>; inputTokens: number }[] = [];
   while (pending.length > 0) {
     const keys = pending.shift()!;
@@ -577,6 +604,8 @@ function verifyRequests(
   requests: CandidateRequest[],
   evidence: CandidateEvidence,
   meta: { subject: PreparedCandidate['subject']; model: MuseModel },
+  /** File keys whose evidence a request may cite; others were sent only as context. */
+  citable?: ReadonlySet<string>,
 ): CandidateAssessment {
   const files = new Map(evidence.layout.repos.flatMap((r) => r.files.map((f) => [f.key, f])));
   const processed = new Set(requests.slice(0, outputs.length).flatMap((r) => [...(r.keys ?? [])]));
@@ -608,9 +637,10 @@ function verifyRequests(
         };
   const all = { ...evidence, coverage };
   const verified = outputs.map((output, i) => {
-    const keys = requests[i]!.keys;
+    const keys = requests[i]!.keys ?? (citable ? new Set(files.keys()) : null);
     if (keys === null) return verifyCandidate(output, all, meta);
-    const refs = new Set([...keys].flatMap((k) => files.get(k)!.refs));
+    const own = [...keys].filter((k) => !citable || citable.has(k));
+    const refs = new Set(own.flatMap((k) => files.get(k)!.refs));
     const items = all.items.filter((it) => refs.has(it.ref));
     return verifyCandidate(output, { ...all, items }, meta);
   });
@@ -735,6 +765,644 @@ export async function analyzeCandidate(
     { inputManifest },
   );
   return { assessmentId: row.id, assessment, cached: false };
+}
+
+// ---- Repositories: one saved row per counted request ----
+
+/** Content address of one repository row: the part's identity at one commit, plus every version. */
+export const repositoryRowKey = (
+  subject: PreparedCandidate['subject'],
+  model: MuseModel,
+  repoId: number,
+  commitSha: string,
+  part: string,
+) => cacheKeyOf({ kind: 'repository', subject, model, repoId, commitSha, part });
+
+const digest = (paths: string[]) => sha256Hex(paths.join('\n')).slice(0, 16);
+const pathOf = (key: string) => key.slice(key.indexOf('\0') + 1);
+
+type Selection = typeof repositorySelections.$inferSelect;
+
+/** The subject's active selection, in the order it was chosen. */
+export async function activeSelection(subject: { kind: 'demo' | 'user'; key: string }) {
+  return db
+    .select()
+    .from(repositorySelections)
+    .where(
+      and(
+        eq(repositorySelections.subjectKind, subject.kind),
+        eq(repositorySelections.subjectKey, subject.key),
+        eq(repositorySelections.active, true),
+      ),
+    )
+    .orderBy(asc(repositorySelections.position));
+}
+
+function repositoryValues(
+  subject: PreparedCandidate['subject'],
+  model: MuseModel,
+  repoId: number,
+  commitSha: string,
+  part: string,
+): typeof skillAssessments.$inferInsert {
+  return {
+    kind: 'repository',
+    subjectKind: subject.kind,
+    subjectKey: subject.key,
+    repoId,
+    part,
+    cacheKey: repositoryRowKey(subject, model, repoId, commitSha, part),
+    model,
+    catalogueVersion: SKILL_CATALOGUE.version,
+    status: 'pending',
+  };
+}
+
+const emptyCoverage = (): CandidateAssessment['coverage'] => ({
+  evidence: 'complete',
+  unavailableRepos: [],
+  omissions: [],
+  duplicates: [],
+  attributionGaps: [],
+  limitations: [],
+});
+
+/** Saves a no-evidence result for one part without any model call; an earlier save is kept. */
+export async function saveNoEvidence(
+  input: {
+    subject: PreparedCandidate['subject'];
+    repoId: number;
+    commitSha: string;
+    part: string;
+    manifest: InputManifest;
+    coverage?: CandidateAssessment['coverage'];
+    /** A fresh regrade saves anew instead of reusing an earlier save. */
+    fresh?: boolean;
+  },
+  options: RunOptions = {},
+): Promise<void> {
+  const model = selectedModel(options);
+  const claimed = await claim(
+    repositoryValues(input.subject, model, input.repoId, input.commitSha, input.part),
+    { retryFailed: true, fresh: input.fresh ?? false },
+  );
+  if (claimed.kind === 'saved') return;
+  const assessment: CandidateAssessment = {
+    kind: 'candidate',
+    subject: input.subject,
+    model,
+    catalogue: { id: SKILL_CATALOGUE.id, version: SKILL_CATALOGUE.version },
+    status: 'no_attributed_evidence',
+    verification: 'location_verified_not_competency',
+    coverage: input.coverage ?? emptyCoverage(),
+    repositories: [],
+    skills: [],
+    unsupportedSkills: [],
+  };
+  await complete(
+    claimed.row.id,
+    'no_attributed_evidence',
+    { result: assessment, inputManifest: input.manifest },
+    claimed.row.startedAt,
+  );
+}
+
+export interface RepositoryBatch {
+  /** Exactly one available repository: the batch's files plus their context. */
+  prepared: PreparedCandidate;
+  repoId: number;
+  /** `batch:i/n:<digest>` at the prepared commit. */
+  part: string;
+  /** Paths this batch assesses as its own evidence; any other file is context only. */
+  core: ReadonlySet<string>;
+  /** Core paths an earlier processed request already covers. */
+  processed: ReadonlySet<string>;
+  attribution: 'complete' | 'limited';
+  /** Automatic runs never resend a request whose earlier attempt failed. */
+  automatic: boolean;
+  /** A fresh regrade: requests are sent anew even when a same-commit result was saved earlier. */
+  fresh: boolean;
+  /** Checked before every paid request; false stops the batch (a superseded run). */
+  owned?: () => Promise<boolean>;
+  /** Context the batch needed but could not send (filtered, too large or over the context cap). */
+  omissions?: Omission[];
+}
+
+/**
+ * Grades the unprocessed core files of one download batch. Each counted request is its own row
+ * (`<part>:req:<digest of its core paths>`), so a verified request is never paid for again and a
+ * resumed run plans only the files no processed request covers. Returns the core paths processed.
+ */
+export async function analyzeRepositoryBatch(
+  batch: RepositoryBatch,
+  options: RunOptions = {},
+): Promise<Set<string>> {
+  const { prepared } = batch;
+  const model = selectedModel(options);
+  assertDataUse(model, [prepared.dataUse]);
+  const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
+  if (ceiling + CANDIDATE_MAX_COMPLETION_TOKENS > CONTEXT_WINDOW) {
+    throw new MuseError('input_too_large', 'Input ceiling leaves no room for output');
+  }
+  const repo = prepared.repos[0] as PreparedRepo;
+  const name = `${repo.owner}/${repo.repo}`;
+  const commitSha = repo.snapshot.commitSha;
+  const evidence = buildCandidateEvidence(prepared, { evidenceChars: Number.MAX_SAFE_INTEGER });
+  if (batch.omissions?.length) {
+    evidence.coverage.omissions.push(...batch.omissions);
+    evidence.coverage.evidence = 'sampled';
+  }
+  const files = evidence.layout.repos.flatMap((r) => r.files);
+  const rendered = new Set(files.map((f) => pathOf(f.key)));
+  const done = new Set(batch.processed);
+  // Core files that render nothing (filtered, empty, summarized) hold nothing to send.
+  for (const p of batch.core) if (!rendered.has(p)) done.add(p);
+  const primary = new Set(
+    files.filter((f) => batch.core.has(pathOf(f.key)) && !done.has(pathOf(f.key))).map((f) => f.key),
+  );
+  if (primary.size === 0) return done;
+
+  const manifest = (paths: string[]): InputManifest => ({
+    repos: [{ repo: name, commitSha, unavailable: null }],
+    resumeSha256: prepared.resume ? sha256Hex(prepared.resume.text) : null,
+    paths,
+    attribution: batch.attribution,
+  });
+  const kinds = new Map(evidence.items.map((i) => [i.ref, i.kind]));
+  const citable = files
+    .filter((f) => primary.has(f.key))
+    .some((f) => f.refs.some((r) => kinds.get(r) === 'attributed'));
+  if (!citable) {
+    const paths = [...primary].map(pathOf).sort();
+    await saveNoEvidence(
+      {
+        subject: prepared.subject,
+        repoId: batch.repoId,
+        commitSha,
+        part: `${batch.part}:none:${digest(paths)}`,
+        manifest: manifest(paths),
+        coverage: evidence.coverage,
+        fresh: batch.fresh,
+      },
+      options,
+    );
+    for (const p of paths) done.add(p);
+    return done;
+  }
+
+  const assertResume = () => {
+    if (!prepared.resume) return;
+    assertDataUse(model, [prepared.subject.kind === 'demo' ? 'approved_public_demo' : 'restricted']);
+  };
+  assertResume();
+  const { requests } = await planCandidate(prepared, model, ceiling, options, assertResume, {
+    evidence,
+    primary,
+  });
+  const allKeys = files.map((f) => f.key);
+  for (const request of requests) {
+    const own = [...(request.keys ?? allKeys)].filter((k) => primary.has(k));
+    if (own.length === 0) continue;
+    const paths = own.map(pathOf).sort();
+    const part = `${batch.part}:req:${digest(paths)}`;
+    if (batch.owned && !(await batch.owned())) {
+      throw new MuseError('previous_failure', 'This run was superseded before a paid request');
+    }
+    const claimed = await claim(
+      repositoryValues(prepared.subject, model, batch.repoId, commitSha, part),
+      { retryFailed: !batch.automatic, fresh: batch.fresh },
+    );
+    if (claimed.kind === 'fresh') {
+      await runClaimed(
+        claimed.row,
+        options,
+        { requests: [request], schema: CandidateOutputSchema, timeoutMs: CANDIDATE_TIMEOUT_MS },
+        scopesFor('candidate', prepared.subject, options.budgetNamespace),
+        (outputs: CandidateOutput[]) =>
+          verifyRequests(
+            outputs,
+            [request],
+            evidence,
+            { subject: prepared.subject, model },
+            new Set(own),
+          ),
+        { inputManifest: manifest(paths) },
+      );
+    }
+    for (const p of paths) done.add(p);
+  }
+  return done;
+}
+
+/** Core paths already covered by processed request rows of one part at one commit. */
+export async function processedPaths(
+  subject: PreparedCandidate['subject'],
+  repoId: number,
+  commitSha: string,
+  part: string,
+  since: Date,
+  options: RunOptions = {},
+): Promise<{ paths: Set<string>; failed: boolean }> {
+  const model = selectedModel(options);
+  const rows = await db
+    .select()
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.kind, 'repository'),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+        eq(skillAssessments.repoId, repoId),
+        eq(skillAssessments.model, model),
+        sql`${skillAssessments.part} like ${`${part}:%`}`,
+      ),
+    );
+  const paths = new Set<string>();
+  let failed = false;
+  for (const r of rows) {
+    if (r.cacheKey !== repositoryRowKey(subject, model, repoId, commitSha, r.part!)) continue;
+    if ((r.completedAt ?? r.startedAt) < since) continue;
+    if (r.status === 'failed') failed = true;
+    if (!(SAVED as readonly string[]).includes(r.status)) continue;
+    for (const p of r.inputManifest?.paths ?? []) paths.add(p);
+  }
+  return { paths, failed };
+}
+
+/**
+ * Re-examines one disputed marker in one repository. The justification is only a claim; the
+ * outcome is `level`, a supported `removed`, or `inconclusive`. Saved as an overlay row that the
+ * combined markers apply on top of that repository's parts; other skills keep their provenance.
+ */
+export async function analyzeReassessment(
+  input: {
+    prepared: PreparedCandidate;
+    repoId: number;
+    skillId: string;
+    justification: string;
+    /** Requested paths, and paths the current marker cites in this repository. */
+    paths: string[];
+    priorPaths: string[];
+  },
+  options: RunOptions = {},
+): Promise<{ outcome: 'level' | 'removed' | 'inconclusive' }> {
+  const { prepared } = input;
+  const model = selectedModel(options);
+  assertDataUse(model, [prepared.dataUse]);
+  if (prepared.resume) {
+    assertDataUse(model, [prepared.subject.kind === 'demo' ? 'approved_public_demo' : 'restricted']);
+  }
+  const repo = prepared.repos[0] as PreparedRepo;
+  const commitSha = repo.snapshot.commitSha;
+  const evidence = buildCandidateEvidence(prepared, { evidenceChars: Number.MAX_SAFE_INTEGER });
+  const resume = prepared.resume?.text ?? null;
+  const dispute = { skillId: input.skillId, justification: input.justification };
+  const body = reassessmentBody(model, evidence.rendered, resume, dispute);
+  const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
+  const inputTokens = await countTokens(museConfig(), body, {
+    ...(options.fetch && { fetch: options.fetch }),
+    ...(options.sleep && { sleep: options.sleep }),
+    ...(options.onCount && { onCount: options.onCount }),
+  });
+  if (inputTokens > ceiling) throw new MuseError('input_too_large', 'Reassessment exceeds the ceiling');
+  const part = `overlay:${randomUUID()}`;
+  const claimed = await claim(
+    repositoryValues(prepared.subject, model, input.repoId, commitSha, part),
+    { retryFailed: true, fresh: true },
+  );
+  const manifest = (r: ReturnType<typeof verifyReassessment>): InputManifest => ({
+    repos: [{ repo: `${repo.owner}/${repo.repo}`, commitSha, unavailable: null }],
+    resumeSha256: resume === null ? null : sha256Hex(resume),
+    paths: [...input.paths].sort(),
+    reassessment: {
+      skillId: input.skillId,
+      outcome: r.outcome,
+      rationale: r.rationale,
+      paths: [...input.paths].sort(),
+      justificationSha256: sha256Hex(input.justification),
+    },
+  });
+  let verdict: ReturnType<typeof verifyReassessment> | undefined;
+  await runClaimed(
+    claimed.row,
+    options,
+    {
+      requests: [{ body, inputTokens }],
+      schema: ReassessmentOutputSchema as never,
+      timeoutMs: CANDIDATE_TIMEOUT_MS,
+    },
+    scopesFor('candidate', prepared.subject, options.budgetNamespace),
+    ([output]: ReassessmentOutput[]) => {
+      verdict = verifyReassessment(output!, evidence, { subject: prepared.subject, model }, {
+        skillId: input.skillId,
+        priorPaths: input.priorPaths,
+      });
+      return scrubQuotedSource(verdict.assessment, evidence);
+    },
+    () => ({ inputManifest: manifest(verdict!) }),
+  );
+  return { outcome: verdict!.outcome };
+}
+
+// ---- Combined candidate markers ----
+
+/** The combined row's key: the subject, model and active repository set, plus every version. */
+export const combinedKey = (
+  subject: PreparedCandidate['subject'],
+  model: MuseModel,
+  repoIds: number[],
+) =>
+  cacheKeyOf({
+    kind: 'candidate',
+    subject,
+    model,
+    repoIds: [...new Set(repoIds)].sort((a, b) => a - b),
+  });
+
+const lower = (s: string) => s.toLowerCase();
+
+/**
+ * The older combined result some selected repositories still rely on: the one already adopted, or
+ * else the newest whose stored key matches the pre-selection fingerprint (candidateKey) of its own
+ * repositories and the current résumé, so it was built from the same inputs and versions.
+ */
+async function legacyFor(
+  subject: PreparedCandidate['subject'],
+  model: MuseModel,
+  selection: Selection[],
+  resumeText: string | null,
+) {
+  const adopted = selection.find((s) => s.legacyAssessmentId !== null)?.legacyAssessmentId;
+  const rows = await db
+    .select()
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.kind, 'candidate'),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+        eq(skillAssessments.model, model),
+        inArray(skillAssessments.status, [...SAVED]),
+        adopted ? eq(skillAssessments.id, adopted) : sql`${skillAssessments.inputManifest} is not null`,
+      ),
+    )
+    .orderBy(desc(skillAssessments.completedAt));
+  const row = rows.find((r) => {
+    if (!r.inputManifest || r.verifierVersion !== VERIFIER_VERSION) return false;
+    if (adopted) return true;
+    const repos = r.inputManifest.repos.map((m) => {
+      const [owner, repo] = m.repo.split('/') as [string, string];
+      return { owner, repo };
+    });
+    return r.cacheKey === candidateKey(subject, { repos, resumeText }, { model }).cacheKey;
+  });
+  if (!row?.inputManifest) return null;
+  const usable = new Set(
+    selection.filter((s) => s.assessedCommit === null).map((s) => lower(s.fullName)),
+  );
+  // Reassessments since the old result: a re-examined marker no longer holds across repositories.
+  const nameOf = new Map(selection.map((s) => [s.repoId, lower(s.fullName)]));
+  const overlays = await db
+    .select({ repoId: skillAssessments.repoId, manifest: skillAssessments.inputManifest })
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.kind, 'repository'),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+        eq(skillAssessments.model, model),
+        inArray(skillAssessments.status, [...SAVED]),
+        sql`${skillAssessments.part} like 'overlay:%'`,
+        sql`${skillAssessments.completedAt} > ${row.completedAt}`,
+      ),
+    );
+  const overlaid = new Set(
+    overlays.flatMap(({ repoId, manifest }) => {
+      const re = manifest?.reassessment;
+      const repo = repoId === null ? undefined : nameOf.get(repoId);
+      return re && repo && re.outcome !== 'inconclusive' ? [`${repo}\n${re.skillId}`] : [];
+    }),
+  );
+  const view = legacyView(
+    CandidateAssessmentSchema.parse(row.result),
+    row.inputManifest.repos,
+    usable,
+    overlaid,
+  );
+  return { row, view };
+}
+
+/**
+ * Adopts, or drops, an older combined result per selected repository: a repository it still covers
+ * honestly needs no download; one it no longer covers (a sibling was graded on its own and a marker
+ * spanned both) is released for grading. Returns the repositories released this way.
+ */
+export async function syncLegacy(
+  subject: PreparedCandidate['subject'],
+  resumeText: string | null,
+  options: RunOptions = {},
+): Promise<Set<string>> {
+  const model = selectedModel(options);
+  const selection = await activeSelection(subject);
+  const legacy = await legacyFor(subject, model, selection, resumeText);
+  for (const s of selection) {
+    const name = lower(s.fullName);
+    // A split repository keeps its old single-repository markers but is graded on its own.
+    const want =
+      legacy?.view.covered.has(name) && !legacy.view.split.has(name) ? legacy.row.id : null;
+    if (want === s.legacyAssessmentId) continue;
+    // An adopted result dates the repository's markers, so later pushes are flagged as changes.
+    const assessedAt = want ? legacy!.row.completedAt : s.assessedCommit ? s.assessedAt : null;
+    await db
+      .update(repositorySelections)
+      .set({ legacyAssessmentId: want, assessedAt })
+      .where(
+        and(
+          eq(repositorySelections.subjectKind, s.subjectKind),
+          eq(repositorySelections.subjectKey, s.subjectKey),
+          eq(repositorySelections.repoId, s.repoId),
+        ),
+      );
+  }
+  return legacy?.view.split ?? new Set();
+}
+
+/**
+ * Rebuilds and saves the combined markers from the active selection: each repository's processed
+ * rows at its assessed commit (or, while it is still being graded, those at its pinned commit),
+ * the older result for repositories it still covers, then newer reassessment overlays. Rows from
+ * older versions are ignored. Returns null for an empty selection, which has no markers at all.
+ */
+export async function combineCandidate(
+  subject: PreparedCandidate['subject'],
+  resumeText: string | null,
+  options: RunOptions = {},
+): Promise<CandidateAssessment | null> {
+  const model = selectedModel(options);
+  const selection = await activeSelection(subject);
+  if (selection.length === 0) return null;
+  const rows = await db
+    .select()
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.kind, 'repository'),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+        eq(skillAssessments.model, model),
+        inArray(skillAssessments.status, [...SAVED]),
+        inArray(
+          skillAssessments.repoId,
+          selection.map((s) => s.repoId),
+        ),
+      ),
+    )
+    .orderBy(asc(skillAssessments.completedAt));
+  const commitOf = (r: Row) => r.inputManifest?.repos[0]?.commitSha ?? '';
+  const current = rows.filter(
+    (r) => r.cacheKey === repositoryRowKey(subject, model, r.repoId!, commitOf(r), r.part!),
+  );
+  const legacy = await legacyFor(subject, model, selection, resumeText);
+
+  const parts: { repo: string; assessment: CandidateAssessment }[] = [];
+  const overlays: Overlay[] = [];
+  const unavailable: CandidateAssessment['coverage']['unavailableRepos'] = [];
+  const manifestRepos: InputManifest['repos'] = [];
+  let legacyAdded = false;
+  for (const s of selection) {
+    const own = current.filter((r) => r.repoId === s.repoId && !r.part!.startsWith('overlay:'));
+    const pick = (commit: string, since: Date | null) =>
+      own.filter((r) => commitOf(r) === commit && (!since || r.completedAt! >= since));
+    let used: Row[] = [];
+    let commit: string | null = null;
+    let base: Date | null = null;
+    if (s.assessedCommit) {
+      used = pick(s.assessedCommit, s.assessedSince);
+      commit = s.assessedCommit;
+      base = s.assessedAt;
+      if (used.length === 0) unavailable.push({ repo: s.fullName, reason: 'outdated' });
+    } else if (legacy?.view.covered.has(lower(s.fullName))) {
+      // Every covered repository has its own legacy part, so overlays apply per repository.
+      if (!legacyAdded) parts.push(...legacy.view.parts);
+      legacyAdded = true;
+      const entry = legacy.row.inputManifest!.repos.find((m) => lower(m.repo) === lower(s.fullName));
+      commit = entry?.commitSha ?? null;
+      base = legacy.row.completedAt;
+      if (legacy.view.split.has(lower(s.fullName))) {
+        unavailable.push({ repo: s.fullName, reason: 'legacy_split' });
+      }
+    } else {
+      if (s.progress) {
+        used = pick(s.progress.commitSha, new Date(s.progress.since));
+        commit = s.progress.commitSha;
+      }
+      unavailable.push({
+        repo: s.fullName,
+        reason: used.length > 0 ? 'partially_processed' : (s.lastError ?? 'not_processed'),
+      });
+    }
+    for (const r of used) {
+      parts.push({
+        repo: s.fullName,
+        assessment: prefixRefs(CandidateAssessmentSchema.parse(r.result), r.id),
+      });
+    }
+    for (const r of current) {
+      const re = r.inputManifest?.reassessment;
+      if (r.repoId !== s.repoId || !re || (base && r.completedAt! <= base)) continue;
+      const result = prefixRefs(CandidateAssessmentSchema.parse(r.result), r.id);
+      overlays.push({
+        repo: s.fullName,
+        skillId: re.skillId,
+        outcome: re.outcome,
+        skill: result.skills.find((k) => k.skillId === re.skillId) ?? null,
+      });
+    }
+    manifestRepos.push({
+      repo: s.fullName,
+      commitSha: commit,
+      unavailable: unavailable.find((u) => u.repo === s.fullName)?.reason ?? null,
+    });
+  }
+  const combined = combineParts(applyOverlays(parts, overlays), unavailable, {
+    subject,
+    model,
+  });
+  const claimed = await claim(
+    {
+      kind: 'candidate',
+      subjectKind: subject.kind,
+      subjectKey: subject.key,
+      cacheKey: combinedKey(
+        subject,
+        model,
+        selection.map((s) => s.repoId),
+      ),
+      model,
+      catalogueVersion: SKILL_CATALOGUE.version,
+      status: 'pending',
+    },
+    { retryFailed: true, fresh: true },
+  );
+  await complete(
+    claimed.row.id,
+    combined.status,
+    {
+      result: combined,
+      inputManifest: {
+        repos: manifestRepos,
+        resumeSha256: resumeText === null ? null : sha256Hex(resumeText),
+      },
+    },
+    claimed.row.startedAt,
+  );
+  return combined;
+}
+
+type Provenance = { resumeSha256: (string | null)[]; attribution: ('complete' | 'limited')[] };
+
+/** Résumé hashes and attribution states behind each selected repository's current parts. */
+export async function repositoryProvenance(
+  subject: PreparedCandidate['subject'],
+  options: RunOptions = {},
+): Promise<Map<number, Provenance>> {
+  const model = selectedModel(options);
+  const selection = await activeSelection(subject);
+  const out = new Map<number, Provenance>();
+  if (selection.length === 0) return out;
+  const rows = await db
+    .select({
+      repoId: skillAssessments.repoId,
+      manifest: skillAssessments.inputManifest,
+      completedAt: skillAssessments.completedAt,
+    })
+    .from(skillAssessments)
+    .where(
+      and(
+        eq(skillAssessments.kind, 'repository'),
+        eq(skillAssessments.subjectKind, subject.kind),
+        eq(skillAssessments.subjectKey, subject.key),
+        eq(skillAssessments.model, model),
+        inArray(skillAssessments.status, [...SAVED]),
+        inArray(
+          skillAssessments.repoId,
+          selection.map((s) => s.repoId),
+        ),
+      ),
+    );
+  for (const s of selection) {
+    const own = rows.filter(
+      (r) =>
+        r.repoId === s.repoId &&
+        r.manifest?.repos[0]?.commitSha === s.assessedCommit &&
+        (!s.assessedSince || r.completedAt! >= s.assessedSince),
+    );
+    out.set(s.repoId, {
+      resumeSha256: own.map((r) => r.manifest?.resumeSha256 ?? null),
+      attribution: own.map((r) => r.manifest?.attribution ?? 'complete'),
+    });
+  }
+  return out;
 }
 
 // ---- Jobs ----
@@ -897,7 +1565,31 @@ export async function matchSaved(
   options: { model?: MuseModel } = {},
 ): Promise<MatchResult> {
   const model = selectedModel(options);
-  const candidateRow = await latestSaved('candidate', subject, model);
+  // With a selection, only the combined markers for exactly that selection count.
+  const selection = await activeSelection(subject);
+  const candidateRow =
+    selection.length === 0
+      ? await latestSaved('candidate', subject, model)
+      : (
+          await db
+            .select()
+            .from(skillAssessments)
+            .where(
+              and(
+                eq(
+                  skillAssessments.cacheKey,
+                  combinedKey(
+                    subject,
+                    model,
+                    selection.map((s) => s.repoId),
+                  ),
+                ),
+                inArray(skillAssessments.status, [...SAVED]),
+              ),
+            )
+            .orderBy(desc(skillAssessments.completedAt))
+            .limit(1)
+        )[0];
   const jobRow = await latestSaved('job', { kind: 'demo', key: jobKey }, model);
   if (!candidateRow || !jobRow)
     throw new RangeError('Both assessments must be saved before matching');

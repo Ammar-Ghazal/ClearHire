@@ -363,7 +363,8 @@ export const DemoCandidateSummarySchema = z.object({
   githubUrl: z.string(),
   githubLogin: z.string(),
   organization: z.boolean(),
-  repositoryCount: z.number().int(),
+  /** Active selected repositories; null until demo defaults are chosen on the first run. */
+  repositoryCount: z.number().int().nullable(),
   resume: ResumeInfoSchema,
   run: RunStatusSchema,
 });
@@ -380,8 +381,23 @@ export const EvidenceLinkSchema = EvidenceRefSchema.pick({
 
 const LinkedClaimSchema = z.object({ summary: z.string(), evidence: z.array(EvidenceLinkSchema) });
 
+/**
+ * Hints that a repository may deserve an explicit reassessment; none triggers one by itself.
+ * `legacy_split`: an older combined result could no longer be split honestly for this repository.
+ */
+export const RepositoryFlagSchema = z.enum([
+  'changed_since_assessed',
+  'resume_changed',
+  'attribution_limited',
+  'legacy_split',
+]);
+export type RepositoryFlag = z.infer<typeof RepositoryFlagSchema>;
+
 export const RepositoryBreakdownSchema = z.object({
   repo: z.string(),
+  /** GitHub repository id, for regrade and reassessment requests; null for unselected entries. */
+  repoId: z.number().int().nullable(),
+  flags: z.array(RepositoryFlagSchema),
   url: z.string(),
   pinnedSha: z.string().nullable(),
   commitSha: z.string().nullable(),
@@ -436,6 +452,57 @@ export const RepositoryBreakdownSchema = z.object({
   }),
 });
 export type RepositoryBreakdown = z.infer<typeof RepositoryBreakdownSchema>;
+
+/** A seeker's dispute of one marker: the justification is a claim to investigate, not evidence. */
+export const ReassessmentBodySchema = z
+  .object({
+    skillId: SkillIdSchema,
+    repoIds: z.array(z.number().int().positive()).min(1).max(5),
+    paths: z.array(z.string().min(1).max(500)).min(1).max(50),
+    justification: z.string().trim().min(1).max(2000),
+  })
+  .strict();
+export type ReassessmentBody = z.infer<typeof ReassessmentBodySchema>;
+
+/** Regrade: without `repoIds`, only repositories that need work; with them, those fresh. */
+export const RerunBodySchema = z
+  .object({ repoIds: z.array(z.number().int().positive()).min(1).max(10).optional() })
+  .strict();
+
+// ---- Live accounts: repository choice (grading is not available yet) ----
+
+export const MAX_SELECTED_REPOSITORIES = 10;
+
+export const PublicRepositorySchema = z.object({
+  id: z.number().int(),
+  fullName: z.string(),
+  description: z.string().nullable(),
+  stars: z.number().int(),
+  pushedAt: z.string().nullable(),
+  fork: z.boolean(),
+  archived: z.boolean(),
+  selected: z.boolean(),
+});
+export type PublicRepository = z.infer<typeof PublicRepositorySchema>;
+export const PublicRepositoriesSchema = z.array(PublicRepositorySchema);
+
+export const RepositorySelectionBodySchema = z
+  .object({
+    repoIds: z
+      .array(z.number().int().positive())
+      .max(MAX_SELECTED_REPOSITORIES)
+      .refine((ids) => new Set(ids).size === ids.length, 'Each repository at most once'),
+  })
+  .strict();
+export type RepositorySelectionBody = z.infer<typeof RepositorySelectionBodySchema>;
+
+/** Saving a selection never starts grading: live-account grading is not available yet. */
+export const RepositorySelectionSavedSchema = z.object({
+  saved: z.literal(true),
+  grading: z.literal('not_started'),
+  repositories: PublicRepositoriesSchema,
+});
+export type RepositorySelectionSaved = z.infer<typeof RepositorySelectionSavedSchema>;
 
 export const DemoCandidateSchema = DemoCandidateSummarySchema.extend({
   verification: z.object({

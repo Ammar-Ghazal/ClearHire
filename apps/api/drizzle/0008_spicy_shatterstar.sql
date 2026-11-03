@@ -1,0 +1,1 @@
+ALTER TABLE "demo_candidates" ADD COLUMN "metadata_refreshed_at" timestamp with time zone;

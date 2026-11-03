@@ -149,7 +149,15 @@ afterAll(async () => {
 
 describe.runIf(up)('importDemoData (Postgres)', () => {
   it('imports once, then writes and extracts nothing when inputs are unchanged', async () => {
-    const usersBefore = (await db.select({ n: sql<number>`count(*)::int` }).from(users))[0]!.n;
+    // Only accounts the bundle names: other test files create users concurrently.
+    const bundleUsers = async () =>
+      (
+        await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(users)
+          .where(inArray(users.login, ['cand', 'bare-account']))
+      )[0]!.n;
+    const usersBefore = await bundleUsers();
     const first = await runImport(bundle());
     expect(first.stats.candidates.inserted).toBe(2);
     expect(first.extractions.size).toBe(1);
@@ -167,7 +175,7 @@ describe.runIf(up)('importDemoData (Postgres)', () => {
     for (const table of ['employers', 'jobs', 'candidates'] as const) {
       expect(again.stats[table]).toMatchObject({ inserted: 0, updated: 0 });
     }
-    const usersAfter = (await db.select({ n: sql<number>`count(*)::int` }).from(users))[0]!.n;
+    const usersAfter = await bundleUsers();
     expect(usersAfter).toBe(usersBefore);
   });
 

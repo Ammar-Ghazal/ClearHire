@@ -41,6 +41,8 @@ export class IngestError extends Error {
     readonly code: IngestErrorCode,
     message: string,
     readonly status?: number,
+    /** For `rate_limited`: when GitHub allows requests again (epoch ms). */
+    readonly resetAt?: number,
   ) {
     super(message);
   }
@@ -48,7 +50,35 @@ export class IngestError extends Error {
 
 interface HttpError {
   status?: number;
-  response?: { headers?: Record<string, string | number | undefined> };
+  response?: { headers?: Record<string, string | number | undefined>; data?: unknown };
+}
+
+/** GitHub documents no headers for some secondary-limit responses: wait at least a minute then. */
+const SECONDARY_WAIT_MS = 60_000;
+
+/**
+ * When a quota response allows requests again, or null when the response is not quota-related.
+ * A 403 is a quota response only with exhausted-quota headers, `retry-after`, or GitHub's
+ * secondary-rate-limit message; any other 403 is a permission denial.
+ * https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api#rate-limit-errors
+ */
+export function quotaResetAt(err: unknown, now = Date.now()): number | null {
+  const { status, response } = (err ?? {}) as HttpError;
+  if (status !== 403 && status !== 429) return null;
+  const headers = response?.headers ?? {};
+  const retryAfter = Number(headers['retry-after']);
+  if (headers['retry-after'] !== undefined && Number.isFinite(retryAfter)) {
+    return now + retryAfter * 1000;
+  }
+  const reset = Number(headers['x-ratelimit-reset']);
+  if (String(headers['x-ratelimit-remaining']) === '0') {
+    return Number.isFinite(reset) ? Math.max(now, reset * 1000) : now + SECONDARY_WAIT_MS;
+  }
+  const message = (response?.data as { message?: unknown } | undefined)?.message;
+  if (status === 429 || (typeof message === 'string' && /rate limit/i.test(message))) {
+    return now + SECONDARY_WAIT_MS;
+  }
+  return null;
 }
 
 // Maps an Octokit failure to a typed error. Never copies the original message or response body.
@@ -56,17 +86,14 @@ export function toIngestError(err: unknown, step: string, signal: AbortSignal): 
   if (err instanceof IngestError) return err;
   if (signal.aborted) return new IngestError('timeout', `Timed out during ${step}`);
 
-  const { status, response } = (err ?? {}) as HttpError;
-  const headers = response?.headers ?? {};
+  const { status } = (err ?? {}) as HttpError;
   if (status === 404) return new IngestError('not_found', `GitHub returned 404 during ${step}`, status);
   if (status === 409 && step === 'getCommit') {
     return new IngestError('empty_repository', 'Repository has no commits', status);
   }
-  if (
-    status === 429 || (status === 403 &&
-    (String(headers['x-ratelimit-remaining']) === '0' || headers['retry-after'] !== undefined))
-  ) {
-    return new IngestError('rate_limited', `GitHub rate limit hit during ${step}`, status);
+  const resetAt = quotaResetAt(err);
+  if (resetAt !== null) {
+    return new IngestError('rate_limited', `GitHub rate limit hit during ${step}`, status, resetAt);
   }
   if (status === 401 || status === 403) {
     return new IngestError('forbidden', `GitHub denied access during ${step}`, status);
@@ -80,38 +107,46 @@ export function toIngestError(err: unknown, step: string, signal: AbortSignal): 
  */
 export const BLOB_CONCURRENCY = 4;
 
-/** Snapshot of `owner/repo` at `ref` (default branch when omitted). */
-export async function ingestRepo(
+async function step<T>(signal: AbortSignal, name: string, fn: () => Promise<T>): Promise<T> {
+  if (signal.aborted) throw new IngestError('timeout', `Timed out before ${name}`);
+  try {
+    return await fn();
+  } catch (err) {
+    throw toIngestError(err, name, signal);
+  }
+}
+
+/** A commit pinned by SHA, with its filtered tree; no file content yet. */
+export interface PinnedTree {
+  commitSha: string;
+  kept: TreeEntry[];
+  skipped: RepoSnapshot['skipped'];
+  /** GitHub's remaining core quota after the tree request: a hint only, workers share it. */
+  quota: { remaining: number; resetAt: number } | null;
+}
+
+/** Pins `ref` (default branch when omitted, or a commit SHA) and lists its filtered tree. */
+export async function pinTree(
   octokit: Octokit,
   target: { owner: string; repo: string; ref?: string },
   limits: IngestLimits = DEFAULT_LIMITS,
-): Promise<RepoSnapshot> {
+  signal: AbortSignal = AbortSignal.timeout(limits.timeoutMs),
+): Promise<PinnedTree> {
   const { owner, repo } = target;
-  const signal = AbortSignal.timeout(limits.timeoutMs);
   const request = { signal };
-
-  async function call<T>(step: string, fn: () => Promise<T>): Promise<T> {
-    if (signal.aborted) throw new IngestError('timeout', `Timed out before ${step}`);
-    try {
-      return await fn();
-    } catch (err) {
-      throw toIngestError(err, step, signal);
-    }
-  }
-
   let ref = target.ref;
   if (!ref) {
-    const { data } = await call('getRepo', () => octokit.rest.repos.get({ owner, repo, request }));
+    const { data } = await step(signal, 'getRepo', () =>
+      octokit.rest.repos.get({ owner, repo, request }),
+    );
     ref = data.default_branch;
   }
 
   // Pin the commit; every later read is by SHA, so a moving branch can't mix two versions.
-  const { data: commit } = await call('getCommit', () =>
+  const { data: commit } = await step(signal, 'getCommit', () =>
     octokit.rest.repos.getCommit({ owner, repo, ref, request }),
   );
-  const commitSha = commit.sha;
-
-  const { data: tree } = await call('getTree', () =>
+  const { data: tree, headers } = await step(signal, 'getTree', () =>
     octokit.rest.git.getTree({
       owner,
       repo,
@@ -129,20 +164,29 @@ export async function ingestRepo(
     if (result === null) kept.push(entry);
     else if (result !== 'ignore') skipped.push({ path: entry.path, reason: result });
   }
+  const remaining = Number(headers?.['x-ratelimit-remaining']);
+  const reset = Number(headers?.['x-ratelimit-reset']);
+  const quota =
+    Number.isFinite(remaining) && Number.isFinite(reset)
+      ? { remaining, resetAt: reset * 1000 }
+      : null;
+  return { commitSha: commit.sha, kept, skipped, quota };
+}
 
-  // Check limits before downloading anything.
-  if (kept.length > limits.maxFiles) {
-    throw new IngestError('too_many_files', `Repository has more than ${limits.maxFiles} files to ingest`);
-  }
-  const totalBytes = kept.reduce((sum, e) => sum + (e.size ?? 0), 0);
-  if (totalBytes > limits.maxTotalBytes) {
-    throw new IngestError('too_large', `Repository has more than ${limits.maxTotalBytes} bytes to ingest`);
-  }
-
+/** Downloads `entries` by blob SHA, a few at a time; non-text files are reported as skipped. */
+export async function fetchFiles(
+  octokit: Octokit,
+  target: { owner: string; repo: string },
+  entries: TreeEntry[],
+  signal: AbortSignal = AbortSignal.timeout(DEFAULT_LIMITS.timeoutMs),
+): Promise<Pick<RepoSnapshot, 'files' | 'skipped'>> {
+  const { owner, repo } = target;
+  const request = { signal };
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   const files: RepoSnapshot['files'] = [];
+  const skipped: RepoSnapshot['skipped'] = [];
   async function fetchBlob(entry: TreeEntry) {
-    const { data: blob } = await call('getBlob', () =>
+    const { data: blob } = await step(signal, 'getBlob', () =>
       octokit.rest.git.getBlob({ owner, repo, file_sha: entry.sha, request }),
     );
     const bytes = Buffer.from(blob.content, 'base64');
@@ -166,18 +210,52 @@ export async function ingestRepo(
   // A few blobs in flight; results are sorted below, so arrival order never matters.
   let next = 0;
   const worker = async () => {
-    while (next < kept.length) {
+    while (next < entries.length) {
       try {
-        await fetchBlob(kept[next++]!);
+        await fetchBlob(entries[next++]!);
       } catch (err) {
-        next = kept.length;
+        next = entries.length;
         throw err;
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(BLOB_CONCURRENCY, kept.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(BLOB_CONCURRENCY, entries.length) }, worker));
+  return { files: files.sort(byPath), skipped: skipped.sort(byPath) };
+}
 
-  const byPath = (a: { path: string }, b: { path: string }) =>
-    a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
-  return { commitSha, files: files.sort(byPath), skipped: skipped.sort(byPath) };
+const byPath = (a: { path: string }, b: { path: string }) =>
+  a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+
+/** Whether `entries` exceed the file-count or byte limits of one download. */
+export function overLimits(
+  entries: TreeEntry[],
+  limits: Pick<IngestLimits, 'maxFiles' | 'maxTotalBytes'> = DEFAULT_LIMITS,
+): 'too_many_files' | 'too_large' | null {
+  if (entries.length > limits.maxFiles) return 'too_many_files';
+  const totalBytes = entries.reduce((sum, e) => sum + (e.size ?? 0), 0);
+  return totalBytes > limits.maxTotalBytes ? 'too_large' : null;
+}
+
+/** Snapshot of `owner/repo` at `ref` (default branch when omitted). */
+export async function ingestRepo(
+  octokit: Octokit,
+  target: { owner: string; repo: string; ref?: string },
+  limits: IngestLimits = DEFAULT_LIMITS,
+): Promise<RepoSnapshot> {
+  const signal = AbortSignal.timeout(limits.timeoutMs);
+  const pinned = await pinTree(octokit, target, limits, signal);
+  // Check limits before downloading anything.
+  const over = overLimits(pinned.kept, limits);
+  if (over === 'too_many_files') {
+    throw new IngestError('too_many_files', `Repository has more than ${limits.maxFiles} files to ingest`);
+  }
+  if (over === 'too_large') {
+    throw new IngestError('too_large', `Repository has more than ${limits.maxTotalBytes} bytes to ingest`);
+  }
+  const fetched = await fetchFiles(octokit, target, pinned.kept, signal);
+  return {
+    commitSha: pinned.commitSha,
+    files: fetched.files,
+    skipped: [...pinned.skipped, ...fetched.skipped].sort(byPath),
+  };
 }

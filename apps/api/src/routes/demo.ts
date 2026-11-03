@@ -3,21 +3,35 @@
 // changes are limited to the posting's employer or allowlisted operators.
 import {
   PrioritySchema,
+  ReassessmentBodySchema,
+  RerunBodySchema,
   SKILL_CATALOGUE,
   SkillIdSchema,
+  type RepositoryFlag,
   type AnalysisStart,
   type DemoCandidate,
   type DemoCandidateSummary,
   type DemoJob,
   type DemoJobSummary,
 } from '@clearhire/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { demoCandidates, demoEmployers, demoJobs, jobPriorityOverrides } from '../db/schema.js';
+import {
+  demoCandidates,
+  demoEmployers,
+  demoJobs,
+  jobPriorityOverrides,
+  repositorySelections,
+} from '../db/schema.js';
 import { isDemoOperator } from '../env.js';
-import { clearPriorityOverride, setPriorityOverride } from '../lib/assessments.js';
+import {
+  activeSelection,
+  clearPriorityOverride,
+  repositoryProvenance,
+  setPriorityOverride,
+} from '../lib/assessments.js';
 import { currentDemoIdentity } from '../lib/demo-identity.js';
 import type { ResumeSource } from '../lib/demo-import.js';
 import { TRANSIENT } from '../lib/demo-prepare.js';
@@ -30,11 +44,13 @@ import {
   type JobRow,
 } from '../lib/demo-results.js';
 import {
-  safeErrorCode,
+  loggedDeps,
   startCandidateRun,
   startJobRun,
+  startReassessment,
   type Started,
 } from '../lib/demo-runner.js';
+import { sha256Hex } from '../lib/packets.js';
 import { buildRepositoryBreakdown } from '../lib/repository-breakdown.js';
 import { currentUserLogin } from '../lib/sessions.js';
 
@@ -97,10 +113,23 @@ const summaryColumns = {
   resumePages: demoCandidates.resumePages,
   runStatus: demoCandidates.runStatus,
   runError: demoCandidates.runError,
+  selectionCheckedAt: demoCandidates.selectionCheckedAt,
 };
 type SummaryRow = Pick<CandidateRow, keyof typeof summaryColumns>;
 
-function candidateSummary(row: SummaryRow): DemoCandidateSummary {
+/** Active selected repositories per demo candidate, from the selection grading uses. */
+async function selectionCounts(): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ key: repositorySelections.subjectKey, n: sql<number>`count(*)::int` })
+    .from(repositorySelections)
+    .where(
+      and(eq(repositorySelections.subjectKind, 'demo'), eq(repositorySelections.active, true)),
+    )
+    .groupBy(repositorySelections.subjectKey);
+  return new Map(rows.map((r) => [r.key, r.n]));
+}
+
+function candidateSummary(row: SummaryRow, selected: number): DemoCandidateSummary {
   const source = row.resumeSource as ResumeSource | null;
   return {
     key: row.key,
@@ -108,7 +137,7 @@ function candidateSummary(row: SummaryRow): DemoCandidateSummary {
     githubUrl: row.githubUrl,
     githubLogin: row.githubLogin,
     organization: row.organization,
-    repositoryCount: row.repositories.length,
+    repositoryCount: row.selectionCheckedAt || selected > 0 ? selected : null,
     resume: {
       status: row.resumeStatus,
       reviewReason: row.resumeReviewReason,
@@ -124,11 +153,34 @@ function candidateSummary(row: SummaryRow): DemoCandidateSummary {
   };
 }
 
+/** Reassessment hints per selected repository; none of them starts any work. */
+async function repositoryFlags(
+  row: CandidateRow,
+  state: Awaited<ReturnType<typeof candidateState>>,
+): Promise<Map<number, RepositoryFlag[]>> {
+  const provenance = await repositoryProvenance({ kind: 'demo', key: row.key });
+  const resume = row.resumeStatus === 'extracted' && row.resumeText ? sha256Hex(row.resumeText) : null;
+  const out = new Map<number, RepositoryFlag[]>();
+  for (const s of state.selection) {
+    const p = provenance.get(s.repoId);
+    const entry = state.manifest?.repos.find((m) => m.repo.toLowerCase() === s.fullName.toLowerCase());
+    const flags: RepositoryFlag[] = [];
+    if (s.pushedAt && s.assessedAt && s.pushedAt > s.assessedAt) flags.push('changed_since_assessed');
+    if (p?.resumeSha256.some((h) => h !== resume)) flags.push('resume_changed');
+    if (p?.attribution.includes('limited')) flags.push('attribution_limited');
+    if (entry?.unavailable === 'legacy_split') flags.push('legacy_split');
+    out.set(s.repoId, flags);
+  }
+  return out;
+}
+
 async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
   const state = await candidateState(row);
+  const flags = await repositoryFlags(row, state);
+  const pins = new Map(row.repositories.map((r) => [`${r.owner}/${r.repo}`.toLowerCase(), r.pinnedSha]));
   const verification = row.verification as DemoCandidate['verification'];
   return {
-    ...candidateSummary(row),
+    ...candidateSummary(row, (await activeSelection({ kind: 'demo', key: row.key })).length),
     verification: {
       identityMatchVerified: verification.identityMatchVerified,
       publicRepositoriesVerified: verification.publicRepositoriesVerified,
@@ -140,7 +192,11 @@ async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
       r.unavailable && TRANSIENT.has(r.unavailable) ? [r.repo] : [],
     ),
     repositories: buildRepositoryBreakdown({
-      repositories: row.repositories,
+      repositories: state.selection.map((sel) => {
+        const [owner, repo] = sel.fullName.split('/') as [string, string];
+        const pinnedSha = pins.get(sel.fullName.toLowerCase()) ?? null;
+        return { owner, repo, pinnedSha, repoId: sel.repoId, flags: flags.get(sel.repoId) ?? [] };
+      }),
       manifest: state.manifest,
       freshness: state.freshness,
       assessment: state.assessment,
@@ -210,9 +266,8 @@ const AnalysisBody = z
 const PriorityBody = z.object({ priority: PrioritySchema.nullable() }).strict();
 
 export async function demoRoutes(app: FastifyInstance) {
-  // Only the safe code: errors from a run can carry request details.
-  const onError = (err: unknown) =>
-    app.log.warn({ code: safeErrorCode(err) }, 'Demo analysis failed');
+  // Only safe codes and count outcomes: errors from a run can carry request details.
+  const deps = loggedDeps(app.log);
 
   const started = (reply: FastifyReply, run: Started) => {
     const body: AnalysisStart = { result: run.result };
@@ -221,7 +276,8 @@ export async function demoRoutes(app: FastifyInstance) {
 
   app.get('/demo/candidates', async () => {
     const rows = await db.select(summaryColumns).from(demoCandidates).orderBy(demoCandidates.name);
-    return rows.map(candidateSummary);
+    const counts = await selectionCounts();
+    return rows.map((row) => candidateSummary(row, counts.get(row.key) ?? 0));
   });
 
   app.get('/demo/candidates/:key', async (request, reply) => {
@@ -270,24 +326,47 @@ export async function demoRoutes(app: FastifyInstance) {
     const run = await startCandidateRun(
       params.data.key,
       { retry: body.data.retry ?? false, fresh: body.data.fresh ?? false },
-      { onError },
+      deps,
     );
     return started(reply, run);
   });
 
-  /** An explicit regrade: always fetches the repositories again and grades them anew. */
+  /**
+   * An explicit regrade: grades the selected repositories that need work (new, unfinished or
+   * failed), reusing every processed result. With `repoIds`, those repositories are graded anew at
+   * their current head, superseding their earlier results once complete.
+   */
   app.post(
     '/demo/candidates/:key/rerun',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (request, reply) => {
       if (!(await requireRegrader(request, reply))) return reply;
       const params = KeyParams.safeParse(request.params);
-      if (!params.success) return send(reply, 400, 'invalid_input', 'Invalid candidate key');
+      const body = RerunBodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return send(reply, 400, 'invalid_input', 'Invalid regrade request');
+      }
       const run = await startCandidateRun(
         params.data.key,
-        { retry: true, fresh: true },
-        { onError },
+        { retry: true, ...(body.data.repoIds && { repoIds: body.data.repoIds }) },
+        deps,
       );
+      return started(reply, run);
+    },
+  );
+
+  /** A seeker disputes one marker; the justification is investigated, never taken as evidence. */
+  app.post(
+    '/demo/candidates/:key/reassessments',
+    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      if (!(await requireRegrader(request, reply))) return reply;
+      const params = KeyParams.safeParse(request.params);
+      const body = ReassessmentBodySchema.safeParse(request.body);
+      if (!params.success || !body.success) {
+        return send(reply, 400, 'invalid_input', 'Invalid reassessment request');
+      }
+      const run = await startReassessment(params.data.key, body.data, deps);
       return started(reply, run);
     },
   );
@@ -302,7 +381,7 @@ export async function demoRoutes(app: FastifyInstance) {
     const run = await startJobRun(
       params.data.id,
       { retry: body.data.retry ?? false, fresh: body.data.fresh ?? false },
-      { onError },
+      deps,
     );
     return started(reply, run);
   });

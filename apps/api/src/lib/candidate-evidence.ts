@@ -90,7 +90,7 @@ export interface RepoEvidence {
 export interface Omission {
   repo: string;
   path: string;
-  reason: 'budget' | 'attributed_not_stored' | 'not_processed';
+  reason: 'budget' | 'attributed_not_stored' | 'not_processed' | 'context_omitted';
   startLine: number | null;
   endLine: number | null;
 }
@@ -149,7 +149,7 @@ const joinLines = (lines: { text: string; eol: string }[]) =>
   lines.map((l) => l.text + l.eol).join('');
 const MAX = Number.MAX_SAFE_INTEGER;
 
-const TAG = /<(\/?)(repo|file|c|a|u|resume|job)(?=[\s>/])/g;
+const TAG = /<(\/?)(repo|file|c|a|u|resume|job|dispute)(?=[\s>/])/g;
 /** Repository text is untrusted: it can never open or close one of our delimiters. */
 export const escapeDelimiters = (text: string) => text.replace(TAG, '&lt;$1$2');
 

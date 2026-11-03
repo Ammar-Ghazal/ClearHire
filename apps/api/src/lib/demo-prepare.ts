@@ -24,7 +24,12 @@ export interface DemoCandidateInput {
 }
 
 /** GitHub failures worth one explicit retry; the rest describe the repository itself. */
-export const TRANSIENT = new Set(['rate_limited', 'timeout', 'upstream_error']);
+export const TRANSIENT = new Set([
+  'rate_limited',
+  'timeout',
+  'upstream_error',
+  'count_unavailable',
+]);
 
 export const fullName = (r: { owner: string; repo: string }) => `${r.owner}/${r.repo}`;
 
@@ -82,19 +87,27 @@ export class PreparationError extends Error {
   }
 }
 
+/** The GitHub identity behind a demo login; organizations are never analysed as a person. */
+export async function resolveIdentity(octokit: Octokit, login: string): Promise<CandidateIdentity> {
+  let user;
+  try {
+    ({ data: user } = await octokit.rest.users.getByUsername({ username: login }));
+  } catch (err) {
+    throw toIngestError(err, 'getUser', new AbortController().signal);
+  }
+  if (user.login.toLowerCase() !== login.toLowerCase()) {
+    throw new PreparationError('identity_mismatch');
+  }
+  if (user.type === 'Organization') throw new PreparationError('organization_account');
+  return { githubUserId: user.id, login: user.login, verifiedEmails: [] };
+}
+
 /** Fetches every selected repository and attaches the current resume text. */
 export async function prepareDemoCandidate(
   octokit: Octokit,
   candidate: DemoCandidateInput,
 ): Promise<PreparedCandidate> {
-  const { data: user } = await octokit.rest.users.getByUsername({
-    username: candidate.githubLogin,
-  });
-  if (user.login.toLowerCase() !== candidate.githubLogin.toLowerCase()) {
-    throw new PreparationError('identity_mismatch');
-  }
-  if (user.type === 'Organization') throw new PreparationError('organization_account');
-  const identity = { githubUserId: user.id, login: user.login, verifiedEmails: [] };
+  const identity = await resolveIdentity(octokit, candidate.githubLogin);
   const repos: (PreparedRepo | UnavailableRepo)[] = [];
   for (const sel of candidate.repositories) repos.push(await prepareRepo(octokit, sel, identity));
   return {

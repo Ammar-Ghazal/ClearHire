@@ -7,7 +7,7 @@ import { getDemoCandidate, getPreferences, regradeCandidate, savePreferences } f
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useChosenIdentity } from '../identity';
-import { ARRANGEMENTS, REPO_STATES, freshnessLabel } from '../status';
+import { ARRANGEMENTS, REPO_FLAGS, REPO_STATES, freshnessLabel } from '../status';
 import { ErrorNote, Loading, Page, Panel, useAction, useLoad, usePoll } from '../ui';
 
 export function ProfilePage() {
@@ -57,6 +57,8 @@ function analysisLabel(candidate: DemoCandidate): string {
 function SeekerProfile({ candidateKey }: { candidateKey: string }) {
   const { data, error, reload } = useLoad(() => getDemoCandidate(candidateKey), [candidateKey]);
   const regrade = useAction();
+  // Repositories to regrade; all selected ones unless the seeker unticks some.
+  const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const running = data?.run.status === 'queued' || data?.run.status === 'pending';
   // Skill tags refresh when the run finishes.
   usePoll(running, reload);
@@ -67,6 +69,14 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
       </Page>
     );
   }
+  const regradable = data.repositories.flatMap((r) => (r.repoId === null ? [] : [r.repoId]));
+  const toRegrade = regradable.filter((id) => !skipped.has(id));
+  const toggle = (id: number) =>
+    setSkipped((s) => {
+      const next = new Set(s);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   return (
     <Page
       title={data.name}
@@ -87,14 +97,29 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
           {data.repositories.map((r) => (
             <li key={r.repo} className="py-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <a href={r.url} target="_blank" rel="noreferrer" className="font-medium underline-offset-4 hover:underline">
-                  {r.repo}
-                </a>
+                <span className="flex items-baseline gap-2">
+                  {r.repoId !== null && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Regrade ${r.repo}`}
+                      checked={!skipped.has(r.repoId)}
+                      onChange={() => toggle(r.repoId!)}
+                    />
+                  )}
+                  <a href={r.url} target="_blank" rel="noreferrer" className="font-medium underline-offset-4 hover:underline">
+                    {r.repo}
+                  </a>
+                </span>
                 <span className="text-sm text-slate-500">{REPO_STATES[r.state]}</span>
               </div>
               {r.skills.length > 0 && (
                 <p className="mt-1 text-sm text-slate-600">
                   Supports: {r.skills.map((s) => s.name).join(', ')}
+                </p>
+              )}
+              {r.flags.length > 0 && (
+                <p className="mt-1 text-sm text-amber-700">
+                  {r.flags.map((f) => REPO_FLAGS[f]).join(' · ')}
                 </p>
               )}
             </li>
@@ -131,17 +156,17 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
                 data.freshness.completedAt &&
                 ` · ${new Date(data.freshness.completedAt).toLocaleDateString()}`}
             </dd>
-            {data.repositoryCount > 0 && !data.organization && (
+            {regradable.length > 0 && !data.organization && (
               <dd className="mt-2 space-y-1">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={running || regrade.busy}
+                  disabled={running || regrade.busy || toRegrade.length === 0}
                   onClick={async () => {
-                    if (await regrade.run(() => regradeCandidate(candidateKey))) reload();
+                    if (await regrade.run(() => regradeCandidate(candidateKey, toRegrade))) reload();
                   }}
                 >
-                  Regrade from latest code
+                  Regrade from latest code ({toRegrade.length} of {regradable.length})
                 </Button>
                 <ErrorNote error={regrade.error} />
               </dd>

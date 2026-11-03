@@ -35,6 +35,23 @@ describe('packParts', () => {
     ]);
   });
 
+  it('starts a fresh request for a file whose related files no longer fit the current one', () => {
+    const grouped: EvidenceLayout = {
+      repos: [
+        {
+          header: 'h'.repeat(10),
+          files: [file('0\0x.ts', 30), file('0\0a.ts', 40, ['0\0b.ts']), file('0\0b.ts', 50)],
+        },
+      ],
+      unavailable: [],
+    };
+    // a alone would fit beside x (80), but a with b would not (130); a fresh request holds both.
+    expect(packParts(grouped, (t) => t.length, 100).map((p) => [...p])).toEqual([
+      ['0\0x.ts'],
+      ['0\0a.ts', '0\0b.ts'],
+    ]);
+  });
+
   it('sends every file exactly once and keeps each part within the budget', () => {
     const cost = (t: string) => t.length;
     const parts = packParts(layout, cost, 100);

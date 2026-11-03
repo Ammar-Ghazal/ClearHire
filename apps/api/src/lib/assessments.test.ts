@@ -34,6 +34,7 @@ const {
   setPriorityOverride,
 } = await import('./assessments.js');
 const { fixtureCandidate, fixtureRepo, sourceLines } = await import('./candidate-fixtures.js');
+const { withCounts } = await import('./test-grading.js');
 
 const RUN = `test-${randomUUID()}`;
 const NS = `${RUN}:`;
@@ -84,13 +85,21 @@ function completion(content: unknown, finish = 'stop') {
   );
 }
 
+/** Queued answers for paid requests; token counts are answered on the side at 1,000 tokens. */
 function fakeFetch(...responses: (Response | Error | (() => Promise<Response>))[]) {
-  return vi.fn(async () => {
+  return vi.fn(async (url?: string) => {
+    if (String(url).endsWith('/responses/input_tokens')) {
+      return new Response(JSON.stringify({ input_tokens: 1000 }));
+    }
     const next = responses.shift() ?? new Error('Unexpected Muse request');
     if (next instanceof Error) throw next;
     return typeof next === 'function' ? next() : next;
   });
 }
+
+/** Paid (chat) requests a fake fetch received; token counts are not paid. */
+const chats = (fetchMock: { mock: { calls: unknown[][] } }) =>
+  fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/chat/completions')).length;
 
 const job = (
   suffix: string,
@@ -283,7 +292,7 @@ describe.runIf(up)('assessments (Postgres)', () => {
       'no_attributed_evidence',
     );
     expect((await analyzeCandidate(none, options)).cached).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(chats(fetchMock)).toBe(1);
   });
 
   it('fails truncated output and resends only on explicit retry', async () => {
@@ -517,7 +526,7 @@ describe.runIf(up)('assessments (Postgres)', () => {
       evidenceCoverage: 100,
       requirements: [{ verdict: 'partly_met', priority: 3, prioritySource: 'override' }],
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(chats(fetchMock)).toBe(2);
   });
 
   it('refuses a user résumé in Contributor mode before claiming, leaving no pending row', async () => {
@@ -544,8 +553,10 @@ describe.runIf(up)('assessments (Postgres)', () => {
     });
     const result = await analyzeCandidate(prepared, { ...OPTIONS, fetch: fetchMock as never });
     expect(result.assessment.status).toBe('complete');
-    const sent = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
-      .body as string) as { messages: { content: string }[] };
+    const chat = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/chat/completions'));
+    const sent = JSON.parse((chat as unknown as [string, RequestInit])[1].body as string) as {
+      messages: { content: string }[];
+    };
     expect(sent.messages[2]!.content).toContain('<resume>\nClaims Kubernetes expertise\n</resume>');
   });
 
@@ -570,7 +581,7 @@ describe.runIf(up)('assessments (Postgres)', () => {
     const again = await analyzeJob(posting, { ...options, fresh: true });
     expect(again).toMatchObject({ cached: false });
     expect(again.assessmentId).not.toBe(graded.assessmentId);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(chats(fetchMock)).toBe(4);
 
     // The newest saved run is the current one; earlier runs stay as history.
     const lookup = await assessmentByFingerprint('candidate', subject, keyOf(prepared));
@@ -615,7 +626,7 @@ describe.runIf(up)('assessments (Postgres)', () => {
         fetch: refused as never,
       }),
     ).rejects.toMatchObject({ code: 'budget_exceeded' });
-    expect(refused).not.toHaveBeenCalled();
+    expect(chats(refused)).toBe(0);
     const okB = fakeFetch(completion(CANDIDATE_OUTPUT));
     await expect(
       analyzeCandidate(fixtureCandidate([attributedRepo()], { subject: b }), {
@@ -788,22 +799,32 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
     });
   });
 
-  it('keeps the conservative estimate when no count is available', async () => {
-    const fetchMock = fakeFetch(
-      new Response('{}', { status: 404 }),
-      completion(CANDIDATE_OUTPUT),
+  it('never sends a request it could not count: bounded retries, then a retryable failure', async () => {
+    const outcomes: unknown[] = [];
+    const fetchMock = vi.fn(async (url: string) =>
+      url.endsWith('/responses/input_tokens')
+        ? new Response('{}', { status: 503 })
+        : completion(CANDIDATE_OUTPUT),
     );
     const subject = { kind: 'demo' as const, key: `${RUN}-uncounted` };
-    const result = await analyzeCandidate(fixtureCandidate([attributedRepo()], { subject }), {
-      ...OPTIONS,
-      inputTokenCeiling: 30_000,
-      fetch: fetchMock as never,
-    });
-    const chat = sentAt(fetchMock, 1).body;
-    expect(await reservedFor(result.assessmentId)).toEqual([
-      reservationMicroUsd(MODEL, estimateTokens(chat), 32_000),
+    await expect(
+      analyzeCandidate(fixtureCandidate([attributedRepo()], { subject }), {
+        ...OPTIONS,
+        fetch: fetchMock as never,
+        onCount: (o) => outcomes.push(o),
+      }),
+    ).rejects.toMatchObject({ code: 'count_unavailable' });
+    // Three counting attempts, no paid request, no saved row; only the outcome is reported.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(chats(fetchMock)).toBe(0);
+    expect(outcomes).toEqual([
+      { outcome: 'failed', failure: 'http_5xx', attempts: 3, latencyMs: expect.any(Number) },
     ]);
-    expect(result.assessment.coverage.evidence).toBe('complete');
+    const rows = await db
+      .select()
+      .from(skillAssessments)
+      .where(eq(skillAssessments.subjectKey, subject.key));
+    expect(rows).toEqual([]);
   });
 
   it('grades seekers concurrently, one run per subject, each on their own allowance', async () => {
@@ -821,7 +842,7 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
       kind: 'demo' as const,
       key: `${RUN}-${s}`,
     }));
-    const options = { ...OPTIONS, fetch: fetchMock as never };
+    const options = { ...OPTIONS, fetch: withCounts(fetchMock as never) };
     const runs = subjects.map((subject) =>
       analyzeCandidate(fixtureCandidate([attributedRepo()], { subject }), options),
     );

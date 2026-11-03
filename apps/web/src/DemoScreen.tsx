@@ -230,7 +230,8 @@ export function DemoScreen({ isOperator }: { isOperator: boolean }) {
             <option value="">Choose a demo candidate…</option>
             {candidates.map((c) => (
               <option key={c.key} value={c.key}>
-                {c.name} (@{c.githubLogin}) · {c.repositoryCount} repo(s)
+                {c.name} (@{c.githubLogin}) ·{' '}
+                {c.repositoryCount === null ? 'repos not chosen yet' : `${c.repositoryCount} repo(s)`}
               </option>
             ))}
           </select>
@@ -393,7 +394,7 @@ function CandidatePanel(props: {
       </div>
       {candidate.repositoryCount === 0 && (
         <Notice tone="info">
-          This profile has no selected repositories, so there is nothing to analyze.
+          This profile has no public repositories to grade, so there is nothing to analyze.
         </Notice>
       )}
       <ActionRow

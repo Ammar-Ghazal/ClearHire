@@ -5,27 +5,46 @@
 // has no result yet, a few at a time; failures are never retried automatically.
 import type { Octokit } from '@octokit/rest';
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, like, lt, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, like, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { demoCandidates, demoJobs, skillAssessments } from '../db/schema.js';
+import { demoCandidates, demoJobs, repositorySelections, skillAssessments } from '../db/schema.js';
 import { env } from '../env.js';
 import {
-  analyzeCandidate,
+  activeSelection,
   analyzeJob,
+  analyzeReassessment,
+  combineCandidate,
   HEARTBEAT_MS,
   recoverStaleAssessments,
+  syncLegacy,
   type RunOptions,
 } from './assessments.js';
-import { EvidenceInputError } from './candidate-evidence.js';
+import { EvidenceInputError, type PreparedCandidate } from './candidate-evidence.js';
+import { collectContributions } from './contributions.js';
+import { demoOctokit, PreparationError, resolveIdentity, RUN_STALE_MS } from './demo-prepare.js';
 import {
-  demoOctokit,
-  PreparationError,
-  prepareDemoCandidate,
-  RUN_STALE_MS,
-} from './demo-prepare.js';
-import { candidateInput, candidateState, jobInput, jobState } from './demo-results.js';
-import { IngestError } from './ingest.js';
+  candidateInput,
+  candidateState,
+  jobInput,
+  jobState,
+  type CandidateRow,
+} from './demo-results.js';
+import { fetchFiles, IngestError, pinTree } from './ingest.js';
 import { MuseError } from './muse.js';
+import { contextPaths } from './packets.js';
+import {
+  assertGitHubAvailable,
+  GITHUB_TRANSIENT,
+  MAX_CONTEXT_FILES,
+  MAX_GITHUB_FAILURES,
+  needsWork,
+  noteQuota,
+  processRepository,
+  recordFailure,
+  requestFresh,
+  type RepositoryContext,
+} from './repository-runs.js';
+import { listPublicRepos, pickDefaults, refreshPushedAt, saveSelection } from './repository-selection.js';
 
 /** A refusal the route reports as 404 or 409 with this code. */
 export class RunError extends Error {
@@ -34,6 +53,8 @@ export class RunError extends Error {
     readonly code:
       | 'not_found'
       | 'no_selected_repositories'
+      | 'not_selected'
+      | 'not_assessed'
       | 'organization_account'
       | 'out_of_scope'
       | 'model_not_configured'
@@ -63,6 +84,19 @@ export interface Started {
 
 type Table = typeof demoCandidates | typeof demoJobs;
 const keyColumn = (table: Table) => (table === demoCandidates ? demoCandidates.key : demoJobs.id);
+
+interface Logger {
+  info(fields: object, message: string): void;
+  warn(fields: object, message: string): void;
+}
+
+/** Run failures as safe codes and each token count's outcome, category and timing; no contents. */
+export function loggedDeps(log: Logger): RunDeps {
+  return {
+    onError: (err) => log.warn({ code: safeErrorCode(err) }, 'Demo analysis failed'),
+    runOptions: { onCount: (outcome) => log.info({ count: outcome }, 'Muse token count') },
+  };
+}
 
 /** Safe, fixed error codes only: exception messages never reach stored state or clients. */
 export function safeErrorCode(err: unknown): string {
@@ -126,13 +160,16 @@ async function claimRun(table: Table, key: string, retry: boolean): Promise<stri
   throw new RunError('previous_failure', 'The previous run failed; use Retry to run it again');
 }
 
-/** Runs `work` while owning the run; heartbeats, then records success or a safe failure code. */
+/**
+ * Runs `work` while owning the run; heartbeats, then records success or a safe failure code. Work
+ * that returns a time is queued again for then (a GitHub quota reset or a transient retry).
+ */
 function runOwned(
   table: Table,
   key: string,
   token: string,
   deps: RunDeps,
-  work: (owned: () => Promise<boolean>) => Promise<void>,
+  work: (owned: () => Promise<boolean>) => Promise<{ at: Date; reason: string } | void>,
 ): Promise<void> {
   const owner = and(
     eq(keyColumn(table), key),
@@ -148,12 +185,19 @@ function runOwned(
         .returning({ id: table.runId })
     ).length > 0;
   const heartbeat = setInterval(() => void touch().catch(() => {}), HEARTBEAT_MS);
-  const finish = (fields: { runStatus: 'idle' | 'failed'; runError: string | null }) =>
-    db.update(table).set(fields).where(owner);
+  const finish = (fields: {
+    runStatus: 'idle' | 'failed' | 'queued';
+    runError: string | null;
+    queuedAt?: Date;
+  }) => db.update(table).set(fields).where(owner);
   return (async () => {
     try {
-      await work(touch);
-      await finish({ runStatus: 'idle', runError: null });
+      const later = await work(touch);
+      await finish(
+        later
+          ? { runStatus: 'queued', runError: later.reason, queuedAt: later.at }
+          : { runStatus: 'idle', runError: null },
+      );
     } catch (err) {
       deps.onError?.(err);
       await finish({ runStatus: 'failed', runError: safeErrorCode(err) }).catch(() => {});
@@ -172,13 +216,27 @@ class OwnershipLost extends Error {}
 export interface StartOptions {
   retry: boolean;
   fresh?: boolean;
+  /** Regrades only these selected repositories, fresh at their current head. */
+  repoIds?: number[];
+  /** Started by the worker: failed paid requests and permanent failures are never retried. */
+  automatic?: boolean;
 }
 
 // ---- Candidates ----
 
+const demoSubject = (key: string) => ({ kind: 'demo' as const, key });
+
+/** Nothing to grade: defaults were chosen, no repository needs work, and the markers are current. */
+async function upToDate(row: CandidateRow, deps: RunDeps): Promise<boolean> {
+  if (!row.selectionCheckedAt) return false;
+  const selection = await activeSelection(demoSubject(row.key));
+  if (selection.some((s) => needsWork(s, 'explicit'))) return false;
+  return (await candidateState(row, deps.runOptions)).freshness.state === 'current';
+}
+
 export async function startCandidateRun(
   key: string,
-  { retry, fresh = false }: StartOptions,
+  { retry, fresh = false, repoIds, automatic = false }: StartOptions,
   deps: RunDeps = {},
 ): Promise<Started> {
   const [row] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
@@ -189,28 +247,226 @@ export async function startCandidateRun(
       'Organization accounts are not analysed as a person',
     );
   }
-  if (row.repositories.length === 0) {
-    throw new RunError('no_selected_repositories', 'This profile has no selected repositories');
-  }
   requireModel(deps);
-  await recoverStaleAssessments({ kind: 'candidate', subjectKind: 'demo', subjectKey: key });
+  const subject = demoSubject(key);
+  const selection = await activeSelection(subject);
+  if (row.selectionCheckedAt && selection.length === 0) {
+    throw new RunError('no_selected_repositories', 'This profile has no public repositories to grade');
+  }
+  if (repoIds?.some((id) => !selection.some((s) => s.repoId === id))) {
+    throw new RunError('not_selected', 'Only selected repositories can be regraded');
+  }
+  for (const kind of ['candidate', 'repository'] as const) {
+    await recoverStaleAssessments({ kind, subjectKind: 'demo', subjectKey: key });
+  }
   await recoverRun(demoCandidates, key);
-  if (!fresh && (await candidateState(row, deps.runOptions)).freshness.state === 'current') {
-    return { result: 'cached' };
+  if (!fresh && !repoIds && (await upToDate(row, deps))) return { result: 'cached' };
+
+  const token = await claimRun(demoCandidates, key, retry || fresh || repoIds !== undefined);
+  const done = runOwned(demoCandidates, key, token, deps, (owned) =>
+    gradeCandidate(key, { fresh, repoIds, automatic }, deps, owned),
+  );
+  return { result: 'started', done };
+}
+
+/** The quota reset an error asks to wait for, or null when it is not a GitHub quota response. */
+function quotaWait(err: unknown): Date | null {
+  noteQuota(err);
+  return err instanceof IngestError && err.code === 'rate_limited'
+    ? new Date(err.resetAt ?? Date.now() + 60_000)
+    : null;
+}
+
+/**
+ * Chooses demo defaults once (metadata only), refreshes change hints, then grades each selected
+ * repository that needs work, saving every processed request as it goes. A GitHub quota response
+ * stops the run and queues it for the reset; completed work is kept. The combined markers are
+ * rebuilt from the selection at the end, so a removed repository no longer contributes.
+ */
+async function gradeCandidate(
+  key: string,
+  mode: { fresh: boolean; repoIds: number[] | undefined; automatic: boolean },
+  deps: RunDeps,
+  owned: () => Promise<boolean>,
+): Promise<{ at: Date; reason: string } | void> {
+  const [current] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
+  if (!current) throw new RunError('not_found', 'No demo candidate with this key');
+  // Held only in memory for this run; never written anywhere.
+  const octokit = (deps.octokit ?? demoOctokit)();
+  const subject = demoSubject(key);
+  const resumeText = candidateInput(current).resumeText;
+  const runOptions = deps.runOptions ?? {};
+  if (mode.fresh || mode.repoIds) await requestFresh(subject, mode.repoIds);
+  let ctx: RepositoryContext;
+  try {
+    assertGitHubAvailable();
+    const identity = await resolveIdentity(octokit, current.githubLogin);
+    const listing = await listPublicRepos(octokit, current.githubLogin);
+    if (!current.selectionCheckedAt) {
+      await saveSelection(subject, pickDefaults(listing), 'demo_default');
+    } else {
+      await refreshPushedAt(subject, listing);
+    }
+    await db
+      .update(demoCandidates)
+      .set({
+        selectionCheckedAt: current.selectionCheckedAt ?? new Date(),
+        metadataRefreshedAt: new Date(),
+      })
+      .where(eq(demoCandidates.key, key));
+    ctx = { subject, identity, resumeText, dataUse: 'approved_public_demo' };
+  } catch (err) {
+    const at = quotaWait(err);
+    if (at) return { at, reason: 'rate_limited' };
+    throw err;
   }
 
-  const token = await claimRun(demoCandidates, key, retry || fresh);
+  await syncLegacy(subject, resumeText, runOptions);
+  let wait: Date | null = null;
+  for (const s of await activeSelection(subject)) {
+    // A requested regrade is recorded on the repository, so a resumed run still honours it.
+    const targeted = s.freshRequestedAt !== null;
+    if (!targeted && !needsWork(s, mode.automatic ? 'automatic' : 'explicit')) continue;
+    // A worker whose claim was recovered or superseded must not start a paid request.
+    if (!(await owned())) throw new OwnershipLost();
+    try {
+      await processRepository(
+        octokit,
+        ctx,
+        s,
+        { fresh: targeted, automatic: mode.automatic, owned },
+        runOptions,
+      );
+    } catch (err) {
+      // A superseded run stops at once and writes nothing more.
+      if (!(await owned())) throw new OwnershipLost();
+      wait = quotaWait(err);
+      if (wait) break;
+      deps.onError?.(err);
+      await recordFailure(s, safeErrorCode(err));
+      // The allowance or configuration stops every repository alike.
+      if (err instanceof MuseError && ['budget_exceeded', 'not_configured'].includes(err.code)) break;
+    }
+  }
+  await syncLegacy(subject, resumeText, runOptions);
+  await combineCandidate(subject, resumeText, runOptions);
+  if (wait) return { at: wait, reason: 'rate_limited' };
+  // A few transient GitHub failures are retried automatically, with backoff.
+  const transient = (await activeSelection(subject)).filter(
+    (s) =>
+      s.lastError !== null &&
+      GITHUB_TRANSIENT.has(s.lastError) &&
+      s.githubFailures < MAX_GITHUB_FAILURES,
+  );
+  if (transient.length > 0) {
+    const failures = Math.max(...transient.map((s) => s.githubFailures));
+    return { at: new Date(Date.now() + 5 * 60_000 * 3 ** (failures - 1)), reason: 'retry_scheduled' };
+  }
+}
+
+export interface ReassessmentInput {
+  skillId: string;
+  repoIds: number[];
+  paths: string[];
+  justification: string;
+}
+
+/**
+ * Re-examines one disputed marker in the named selected repositories at their current head: the
+ * requested files, the files the marker currently cites, and their imports, tests and manifests.
+ * Runs as the candidate's run, so it never overlaps grading.
+ */
+export async function startReassessment(
+  key: string,
+  input: ReassessmentInput,
+  deps: RunDeps = {},
+): Promise<Started> {
+  const [row] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
+  if (!row) throw new RunError('not_found', 'No demo candidate with this key');
+  requireModel(deps);
+  const subject = demoSubject(key);
+  const selection = await activeSelection(subject);
+  const chosen = input.repoIds.map((id) => selection.find((s) => s.repoId === id));
+  if (chosen.some((s) => !s)) throw new RunError('not_selected', 'Only selected repositories can be reassessed');
+  if (chosen.some((s) => !s!.assessedCommit && !s!.legacyAssessmentId)) {
+    throw new RunError('not_assessed', 'A repository must be graded before it can be reassessed');
+  }
+  await recoverRun(demoCandidates, key);
+  const token = await claimRun(demoCandidates, key, true);
   const done = runOwned(demoCandidates, key, token, deps, async (owned) => {
     const [current] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
     if (!current) throw new RunError('not_found', 'No demo candidate with this key');
-    // Held only in memory for this run; never written anywhere.
-    const prepared = await prepareDemoCandidate(
-      (deps.octokit ?? demoOctokit)(),
-      candidateInput(current),
-    );
-    // A worker whose claim was recovered or superseded must not start a paid request.
-    if (!(await owned())) throw new OwnershipLost();
-    await analyzeCandidate(prepared, { ...deps.runOptions, retryFailed: retry || fresh, fresh });
+    const octokit = (deps.octokit ?? demoOctokit)();
+    const runOptions = deps.runOptions ?? {};
+    const resumeText = candidateInput(current).resumeText;
+    const state = await candidateState(current, runOptions);
+    const marker = state.assessment?.skills.find((s) => s.skillId === input.skillId);
+    try {
+      assertGitHubAvailable();
+      const identity = await resolveIdentity(octokit, current.githubLogin);
+      for (const s of chosen as NonNullable<(typeof chosen)[number]>[]) {
+        const [owner, repo] = s.fullName.split('/') as [string, string];
+        const priorPaths = [
+          ...new Set(
+            (marker?.evidence ?? [])
+              .filter((e) => e.repo.toLowerCase() === s.fullName.toLowerCase())
+              .map((e) => e.path),
+          ),
+        ];
+        const tree = await pinTree(octokit, { owner, repo });
+        const byPath = new Map(tree.kept.map((e) => [e.path, e]));
+        const wanted = [...new Set([...input.paths, ...priorPaths])].filter((p) => byPath.has(p));
+        if (wanted.length === 0) continue;
+        const core = await fetchFiles(octokit, { owner, repo }, wanted.map((p) => byPath.get(p)!));
+        const extra = contextPaths(core.files, [...byPath.keys()]).slice(0, MAX_CONTEXT_FILES);
+        const context = await fetchFiles(octokit, { owner, repo }, extra.map((p) => byPath.get(p)!));
+        const collected = await collectContributions(
+          octokit,
+          { owner, repo, commitSha: tree.commitSha },
+          identity,
+        );
+        const prepared: PreparedCandidate = {
+          subject,
+          identity,
+          repos: [
+            {
+              owner,
+              repo,
+              collectedFor: identity.githubUserId,
+              snapshot: {
+                commitSha: tree.commitSha,
+                files: [...core.files, ...context.files].sort((a, b) => (a.path < b.path ? -1 : 1)),
+                skipped: [...tree.skipped, ...core.skipped, ...context.skipped],
+              },
+              collected,
+            },
+          ],
+          resume: resumeText === null ? null : { text: resumeText },
+          dataUse: 'approved_public_demo',
+        };
+        if (!(await owned())) throw new OwnershipLost();
+        await analyzeReassessment(
+          {
+            prepared,
+            repoId: s.repoId,
+            skillId: input.skillId,
+            justification: input.justification,
+            paths: wanted,
+            priorPaths,
+          },
+          runOptions,
+        );
+      }
+    } catch (err) {
+      const at = quotaWait(err);
+      // A reassessment is never resumed on its own: the seeker asks again after the reset.
+      if (at) throw new IngestError('rate_limited', 'GitHub quota exhausted', 429, at.getTime());
+      throw err;
+    } finally {
+      // A re-examined marker that spanned repositories releases the others for their own grading.
+      await syncLegacy(subject, resumeText, runOptions);
+      await combineCandidate(subject, resumeText, runOptions);
+    }
   });
   return { result: 'started', done };
 }
@@ -276,7 +532,9 @@ async function enqueueUngraded(deps: RunDeps): Promise<void> {
     );
   // Unauthenticated GitHub allows 60 requests an hour, too few for a repository fetch.
   if (!deps.octokit && !env.GITHUB_DEMO_TOKEN) return;
-  // Legacy results have no manifest, so those candidates are graded live once.
+  // Defaults not chosen yet, or a selected repository never graded, unfinished, or released from
+  // an older result. Failed repositories wait for an explicit regrade.
+  const r = repositorySelections;
   await db
     .update(demoCandidates)
     .set(queued)
@@ -285,11 +543,14 @@ async function enqueueUngraded(deps: RunDeps): Promise<void> {
         inScope(demoCandidates),
         eq(demoCandidates.organization, false),
         eq(demoCandidates.runStatus, 'idle'),
-        sql`jsonb_array_length(${demoCandidates.repositories}) > 0`,
-        sql`not exists (select 1 from ${skillAssessments} where ${skillAssessments.kind} = 'candidate'
-          and ${skillAssessments.subjectKind} = 'demo' and ${skillAssessments.subjectKey} = ${demoCandidates.key}
-          and ${skillAssessments.status} in ${SAVED_STATUSES}
-          and ${skillAssessments.inputManifest} is not null)`,
+        or(
+          sql`${demoCandidates.selectionCheckedAt} is null`,
+          sql`exists (select 1 from ${r} where ${r.subjectKind} = 'demo'
+            and ${r.subjectKey} = ${demoCandidates.key} and ${r.active}
+            and ${r.lastError} is null and (${r.freshRequestedAt} is not null
+              or (${r.legacyAssessmentId} is null
+                and (${r.progress} is not null or ${r.assessedCommit} is null))))`,
+        ),
       ),
     );
 }
@@ -307,6 +568,8 @@ async function nextQueued(deps: RunDeps, active: ReadonlySet<string>): Promise<Q
       eq(table.runStatus, 'queued'),
       deps.scope ? like(keyColumn(table), `${deps.scope}%`) : undefined,
       active.size > 0 ? notInArray(keyColumn(table), [...active]) : undefined,
+      // Work waiting for a GitHub quota reset or a retry time never blocks other subjects.
+      lte(table.queuedAt, new Date()),
     );
   const [job] = await db
     .select({ id: demoJobs.id })
@@ -328,7 +591,7 @@ async function nextQueued(deps: RunDeps, active: ReadonlySet<string>): Promise<Q
       ? {
           table: demoCandidates,
           key: candidate.key,
-          start: () => startCandidateRun(candidate.key, { retry: false }, deps),
+          start: () => startCandidateRun(candidate.key, { retry: false, automatic: true }, deps),
         }
       : null;
 }
@@ -352,6 +615,57 @@ async function runQueued(next: Queued, deps: RunDeps): Promise<void> {
 
 const museReady = (deps: RunDeps) =>
   Boolean((deps.runOptions?.model ?? env.META_MODEL) && env.META_API_KEY);
+
+/** How often graded candidates' listings are refreshed for change warnings. */
+export const METADATA_REFRESH_MS = 6 * 3_600_000;
+
+/**
+ * Metadata only: refreshes the last-push times of a few graded candidates whose listing is older
+ * than METADATA_REFRESH_MS, so change warnings appear without a regrade. Never downloads code or
+ * starts grading; stops at a quota response.
+ */
+export async function refreshMetadata(deps: RunDeps = {}, limit = 5): Promise<number> {
+  if (!deps.octokit && !env.GITHUB_DEMO_TOKEN) return 0;
+  try {
+    assertGitHubAvailable();
+  } catch {
+    return 0;
+  }
+  const due = await db
+    .select({ key: demoCandidates.key, login: demoCandidates.githubLogin })
+    .from(demoCandidates)
+    .where(
+      and(
+        deps.scope ? like(demoCandidates.key, `${deps.scope}%`) : undefined,
+        eq(demoCandidates.organization, false),
+        eq(demoCandidates.runStatus, 'idle'),
+        sql`${demoCandidates.selectionCheckedAt} is not null`,
+        or(
+          sql`${demoCandidates.metadataRefreshedAt} is null`,
+          lt(demoCandidates.metadataRefreshedAt, new Date(Date.now() - METADATA_REFRESH_MS)),
+        ),
+      ),
+    )
+    .orderBy(sql`${demoCandidates.metadataRefreshedAt} asc nulls first`)
+    .limit(limit);
+  const octokit = (deps.octokit ?? demoOctokit)();
+  let refreshed = 0;
+  for (const c of due) {
+    try {
+      await refreshPushedAt(demoSubject(c.key), await listPublicRepos(octokit, c.login));
+      refreshed++;
+    } catch (err) {
+      if (quotaWait(err)) break;
+      deps.onError?.(err);
+    }
+    // Also after another failure, so one broken account is not listed again every tick.
+    await db
+      .update(demoCandidates)
+      .set({ metadataRefreshedAt: new Date() })
+      .where(eq(demoCandidates.key, c.key));
+  }
+  return refreshed;
+}
 
 /** One worker step: queue ungraded subjects, then grade the oldest queued one. */
 export async function analysisTick(deps: RunDeps = {}): Promise<boolean> {
@@ -378,6 +692,7 @@ export async function drainQueue(
   concurrency = WORKER_CONCURRENCY,
 ): Promise<number> {
   if (!museReady(deps)) return 0;
+  await refreshMetadata(deps).catch((err: unknown) => deps.onError?.(err));
   await enqueueUngraded(deps);
   // Keys stay listed after their run, so a subject queued again mid-drain waits for the next one.
   const active = new Set<string>();

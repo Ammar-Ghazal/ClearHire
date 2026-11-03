@@ -13,7 +13,7 @@ import {
   type LinkedAccount,
   type PrLookup,
 } from './attribution.js';
-import { IngestError, toIngestError } from './ingest.js';
+import { IngestError, quotaResetAt, toIngestError } from './ingest.js';
 
 export interface CollectLimits {
   /** Every Octokit call counts, required or optional. */
@@ -130,13 +130,15 @@ export async function collectContributions(
     }
   }
 
-  // Optional calls never throw: a failure, the request cap or the timeout all return null.
+  // A failure, the request cap or the timeout return null. A quota response throws, so it defers
+  // the repository instead of becoming a gap that looks permanent.
   async function optional<T>(fn: () => Promise<T>): Promise<T | null> {
     if (signal.aborted || !hasBudget()) return null;
     used++;
     try {
       return await fn();
-    } catch {
+    } catch (err) {
+      if (quotaResetAt(err) !== null) throw toIngestError(err, 'optional', signal);
       return null;
     }
   }

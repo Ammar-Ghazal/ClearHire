@@ -43,6 +43,27 @@
       "when": 1793725391728,
       "tag": "0005_woozy_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793741525435,
+      "tag": "0006_tidy_angel",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793745689891,
+      "tag": "0007_zippy_may_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793746556547,
+      "tag": "0008_spicy_shatterstar",
+      "breakpoints": true
     }
   ]
 }

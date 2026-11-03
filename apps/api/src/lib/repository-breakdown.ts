@@ -8,6 +8,7 @@ import {
   type EvidenceRef,
   type Freshness,
   type RepositoryBreakdown,
+  type RepositoryFlag,
 } from '@clearhire/shared';
 import type { InputManifest } from '../db/schema.js';
 import { fullName, type SelectedRepo } from './demo-prepare.js';
@@ -27,7 +28,8 @@ const link = (ref: EvidenceRef) => ({
 });
 
 export interface BreakdownInput {
-  repositories: SelectedRepo[];
+  /** The active selection, in order, with its GitHub ids and reassessment hints. */
+  repositories: (SelectedRepo & { repoId?: number | null; flags?: RepositoryFlag[] })[];
   /** What the current assessment graded; null when none is current. */
   manifest: InputManifest | null;
   freshness: Freshness;
@@ -42,6 +44,8 @@ export function buildRepositoryBreakdown(input: BreakdownInput): RepositoryBreak
     const entry = input.manifest?.repos.find((r) => same(r.repo, name));
     const base: RepositoryBreakdown = {
       repo: name,
+      repoId: sel.repoId ?? null,
+      flags: sel.flags ?? [],
       url: `https://github.com/${name}`,
       pinnedSha: sel.pinnedSha,
       commitSha: entry?.commitSha ?? null,
@@ -68,7 +72,12 @@ export function buildRepositoryBreakdown(input: BreakdownInput): RepositoryBreak
         return base;
     }
     if (!assessment || !entry) return base;
-    if (entry.unavailable) return { ...base, state: 'unavailable', reason: entry.unavailable };
+    // Some batches are graded: their findings show, and the reason says the rest is pending.
+    const partly = entry.unavailable === 'partially_processed';
+    if (entry.unavailable && !partly) {
+      return { ...base, state: 'unavailable', reason: entry.unavailable };
+    }
+    if (partly) base.reason = entry.unavailable;
     if (assessment.status === 'no_attributed_evidence') {
       return { ...base, state: 'no_attributed_evidence' };
     }

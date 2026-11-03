@@ -1,7 +1,20 @@
-import type { Health, Me } from '@clearhire/shared';
+import {
+  MAX_SELECTED_REPOSITORIES,
+  type Health,
+  type Me,
+  type PublicRepository,
+} from '@clearhire/shared';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { getHealth, getMe, loginUrl, logout } from '../api';
+import {
+  ApiRequestError,
+  getHealth,
+  getMe,
+  getMyRepositories,
+  loginUrl,
+  logout,
+  saveMyRepositories,
+} from '../api';
 import { DemoScreen } from '../DemoScreen';
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -164,6 +177,113 @@ function SignedIn({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </dd>
         </div>
       </dl>
+      <RepositoryChoice />
     </div>
+  );
+}
+
+const pushed = (r: PublicRepository) => (r.pushedAt ? Date.parse(r.pushedAt) : 0);
+
+/**
+ * Public repositories to assess, at most 10, in the order chosen. Sorting only helps browsing;
+ * nothing is chosen automatically. Saving does not start grading (not available for live accounts).
+ */
+function RepositoryChoice() {
+  const [repos, setRepos] = useState<PublicRepository[] | null>(null);
+  const [chosen, setChosen] = useState<number[]>([]);
+  const [sort, setSort] = useState<'stars' | 'pushed'>('stars');
+  const [status, setStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getMyRepositories()
+      .then((list) => {
+        setRepos(list);
+        setChosen(list.filter((r) => r.selected).map((r) => r.id));
+      })
+      .catch((err: unknown) => {
+        const code = err instanceof ApiRequestError ? ` (${err.code})` : '';
+        setStatus(`Could not list repositories${code}.`);
+      });
+  }, []);
+
+  const toggle = (id: number) =>
+    setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  async function save() {
+    setSaving(true);
+    try {
+      await saveMyRepositories(chosen);
+      setStatus('Saved. Grading for live accounts is not available yet, so nothing was started.');
+    } catch (err) {
+      setStatus(err instanceof ApiRequestError ? `Not saved (${err.code}).` : 'Not saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sorted = [...(repos ?? [])].sort((a, b) =>
+    sort === 'stars' ? b.stars - a.stars || pushed(b) - pushed(a) : pushed(b) - pushed(a),
+  );
+  const full = chosen.length >= MAX_SELECTED_REPOSITORIES;
+  return (
+    <section className="mt-8">
+      <div className="flex items-center gap-3">
+        <h2 className="font-medium text-slate-800">Repositories to assess</h2>
+        <span className="text-sm text-slate-500">
+          {chosen.length} of {MAX_SELECTED_REPOSITORIES} chosen
+        </span>
+        <label className="ml-auto text-sm text-slate-600">
+          Sort by{' '}
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as 'stars' | 'pushed')}
+            className="rounded-md border border-slate-300 px-2 py-1"
+          >
+            <option value="stars">Stars</option>
+            <option value="pushed">Latest push</option>
+          </select>
+        </label>
+      </div>
+      {repos === null && !status && <p className="mt-3 text-sm text-slate-500">Loading…</p>}
+      {repos && repos.length === 0 && (
+        <p className="mt-3 text-sm text-slate-500">No public repositories found.</p>
+      )}
+      <ul className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200">
+        {sorted.map((r) => {
+          const on = chosen.includes(r.id);
+          return (
+            <li key={r.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                id={`repo-${r.id}`}
+                checked={on}
+                disabled={!on && full}
+                onChange={() => toggle(r.id)}
+              />
+              <label htmlFor={`repo-${r.id}`} className="flex-1 text-slate-800">
+                {r.fullName}
+                {r.fork && <span className="ml-2 text-xs text-slate-500">fork</span>}
+                {r.archived && <span className="ml-2 text-xs text-slate-500">archived</span>}
+              </label>
+              <span className="text-xs text-slate-500">★ {r.stars}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={() => void save()}
+          disabled={saving || repos === null}
+          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:bg-slate-400"
+        >
+          Save selection
+        </button>
+        {status && (
+          <p role="status" className="text-sm text-slate-600">
+            {status}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }

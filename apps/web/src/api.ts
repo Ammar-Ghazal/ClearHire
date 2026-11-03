@@ -18,6 +18,8 @@ import {
   OfferListSchema,
   OfferSchema,
   PreferencesSchema,
+  PublicRepositoriesSchema,
+  RepositorySelectionSavedSchema,
   type Answer,
   type DemoIdentity,
   type DemoSide,
@@ -32,6 +34,8 @@ import {
   type DemoMatch,
   type Health,
   type Me,
+  type PublicRepository,
+  type RepositorySelectionSaved,
 } from '@clearhire/shared';
 
 export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api';
@@ -92,6 +96,17 @@ async function request<T>(
 
 const segment = encodeURIComponent;
 
+// ---- Signed-in account: repository choice (grading live accounts is not available yet) ----
+
+export const getMyRepositories = (): Promise<PublicRepository[]> =>
+  request('/me/repositories', PublicRepositoriesSchema);
+
+export const saveMyRepositories = (repoIds: number[]): Promise<RepositorySelectionSaved> =>
+  request('/me/repositories/selection', RepositorySelectionSavedSchema, {
+    method: 'PUT',
+    body: { repoIds },
+  });
+
 export const getDemoCandidates = (): Promise<DemoCandidateSummary[]> =>
   request('/demo/candidates', DemoCandidateListSchema);
 
@@ -123,9 +138,12 @@ export const startJobAnalysis = (id: string, regrade: boolean): Promise<Analysis
     body: { retry: regrade, fresh: regrade },
   });
 
-/** A seeker's own explicit regrade: fetches the repositories again and grades them anew. */
-export const regradeCandidate = (key: string): Promise<AnalysisStart> =>
-  request(`/demo/candidates/${segment(key)}/rerun`, AnalysisStartSchema, { method: 'POST' });
+/** A seeker's own explicit regrade: fetches the named repositories again and grades them anew. */
+export const regradeCandidate = (key: string, repoIds: number[]): Promise<AnalysisStart> =>
+  request(`/demo/candidates/${segment(key)}/rerun`, AnalysisStartSchema, {
+    method: 'POST',
+    body: { repoIds },
+  });
 
 /** `null` resets the requirement to its suggested priority. */
 export const setJobPriority = (id: string, skillId: string, priority: number | null) =>

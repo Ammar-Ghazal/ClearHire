@@ -7,6 +7,7 @@ import type {
   Offer,
   RelationshipStage,
   RepositoryBreakdown,
+  RepositoryFlag,
   Score,
 } from '@clearhire/shared';
 
@@ -111,6 +112,14 @@ export const REPO_STATES: Record<RepositoryBreakdown['state'], string> = {
   failed: 'Analysis failed',
   outdated: 'Analysis outdated',
   not_analyzed: 'Not analyzed yet',
+};
+
+/** Hints that a repository may deserve a regrade or dispute; none starts any work. */
+export const REPO_FLAGS: Record<RepositoryFlag, string> = {
+  changed_since_assessed: 'New commits since it was graded',
+  resume_changed: 'Graded with an earlier résumé',
+  attribution_limited: 'Authorship could not be fully checked',
+  legacy_split: 'Waiting to be graded on its own',
 };
 
 export const ANSWERS: Record<Answer, string> = { yes: 'Yes', maybe: 'Maybe', no: 'No' };

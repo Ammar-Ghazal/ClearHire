@@ -39,11 +39,18 @@ vi.mock('./health.js', () => ({ healthRoutes: async () => {} }));
 vi.mock('./me.js', () => ({ meRoutes: async () => {} }));
 vi.mock('../lib/demo-runner.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/demo-runner.js')>();
-  return { ...actual, startCandidateRun: vi.fn(), startJobRun: vi.fn() };
+  return {
+    ...actual,
+    startCandidateRun: vi.fn(),
+    startJobRun: vi.fn(),
+    startReassessment: vi.fn(),
+  };
 });
 
 const { buildApp } = await import('../app.js');
-const { RunError, startCandidateRun, startJobRun } = await import('../lib/demo-runner.js');
+const { RunError, startCandidateRun, startJobRun, startReassessment } = await import(
+  '../lib/demo-runner.js'
+);
 const { db, databaseIsUp, pool } = await import('../db/client.js');
 const {
   demoCandidates,
@@ -52,9 +59,12 @@ const {
   jobPriorityOverrides,
   museCalls,
   museSpendBudgets,
+  repositorySelections,
   skillAssessments,
 } = await import('../db/schema.js');
-const { analyzeCandidate, analyzeJob } = await import('../lib/assessments.js');
+const { analyzeJob } = await import('../lib/assessments.js');
+const { fixtureRepoId, gradeFixture, withCounts } = await import('../lib/test-grading.js');
+const { saveSelection } = await import('../lib/repository-selection.js');
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 async function app() {
@@ -248,6 +258,9 @@ async function demoIdentity(
 afterAll(async () => {
   if (up) {
     await db.delete(skillAssessments).where(like(skillAssessments.subjectKey, `${RUN}%`));
+    await db
+      .delete(repositorySelections)
+      .where(like(repositorySelections.subjectKey, `${RUN}%`));
     await db.delete(museSpendBudgets).where(like(museSpendBudgets.scope, `${RUN}%`));
     await db.delete(jobPriorityOverrides).where(like(jobPriorityOverrides.jobKey, `${RUN}%`));
     await db.delete(demoJobs).where(like(demoJobs.id, `${RUN}%`));
@@ -305,6 +318,8 @@ describe.runIf(up)('demo reads (Postgres)', () => {
         githubAccountKind: 'user',
       },
     });
+    const one = { id: fixtureRepoId('octo/one'), fullName: 'octo/one', pushedAt: null };
+    await saveSelection({ kind: 'demo', key: KEY }, [one], 'demo_default');
   });
 
   it('lists and details subjects through public fields, without GitHub or Muse', async () => {
@@ -402,9 +417,9 @@ describe.runIf(up)('demo reads (Postgres)', () => {
     const options = {
       model: 'muse-spark-1.3' as const,
       budgetNamespace: `${RUN}:`,
-      fetch: vi.fn(async () => reply(CANDIDATE_OUTPUT)) as unknown as typeof fetch,
+      fetch: withCounts(vi.fn(async () => reply(CANDIDATE_OUTPUT)) as unknown as typeof fetch),
     };
-    await analyzeCandidate({ ...prepared, resume: { text: SECRET_RESUME } }, options);
+    await gradeFixture({ ...prepared, resume: { text: SECRET_RESUME } }, options);
     expect(await match(JOB)).toEqual({ availability: 'unavailable', reason: 'job_not_current' });
     await analyzeJob(
       {
@@ -415,7 +430,10 @@ describe.runIf(up)('demo reads (Postgres)', () => {
         textSource: 'fixture_summary',
         dataUse: 'approved_public_demo',
       },
-      { ...options, fetch: vi.fn(async () => reply(JOB_OUTPUT)) as unknown as typeof fetch },
+      {
+        ...options,
+        fetch: withCounts(vi.fn(async () => reply(JOB_OUTPUT)) as unknown as typeof fetch),
+      },
     );
     const scored = await match(JOB);
     expect(scored).toMatchObject({
@@ -523,13 +541,15 @@ describe.runIf(up)('demo reads (Postgres)', () => {
   it('lets a seeker regrade only their own profile, and operators any profile', async () => {
     const instance = await app();
     vi.mocked(startCandidateRun).mockResolvedValue({ result: 'started', done: Promise.resolve() });
-    const rerun = (key: string, cookies?: Record<string, string>) =>
-      instance.inject({ method: 'POST', url: `/demo/candidates/${key}/rerun`, cookies });
+    const rerun = (key: string, cookies?: Record<string, string>, payload?: object) =>
+      instance.inject({ method: 'POST', url: `/demo/candidates/${key}/rerun`, cookies, payload });
     const own = await demoIdentity(instance, 'candidate', KEY);
+    // Without repositories named, only what needs work is graded; named ones are regraded fresh.
     expect((await rerun(KEY, own)).statusCode).toBe(202);
-    expect(vi.mocked(startCandidateRun).mock.calls[0]!.slice(0, 2)).toEqual([
-      KEY,
-      { retry: true, fresh: true },
+    expect((await rerun(KEY, own, { repoIds: [7] })).statusCode).toBe(202);
+    expect(vi.mocked(startCandidateRun).mock.calls.map((c) => c.slice(0, 2))).toEqual([
+      [KEY, { retry: true }],
+      [KEY, { retry: true, repoIds: [7] }],
     ]);
     expect((await rerun('someone-else', own)).statusCode).toBe(401);
     expect((await rerun(KEY, await demoIdentity(instance, 'employer', EMPLOYER))).statusCode).toBe(
@@ -538,6 +558,34 @@ describe.runIf(up)('demo reads (Postgres)', () => {
     state.login = 'alice';
     state.operators = ['alice'];
     expect((await rerun('someone-else')).statusCode).toBe(202);
-    expect(startCandidateRun).toHaveBeenCalledTimes(2);
+    expect(startCandidateRun).toHaveBeenCalledTimes(3);
+  });
+
+  it('accepts a seeker dispute of one marker for their own profile only, validated', async () => {
+    const instance = await app();
+    vi.mocked(startReassessment).mockResolvedValue({ result: 'started', done: Promise.resolve() });
+    const dispute = (payload: object, cookies?: Record<string, string>) =>
+      instance.inject({
+        method: 'POST',
+        url: `/demo/candidates/${KEY}/reassessments`,
+        payload,
+        cookies,
+      });
+    const body = {
+      skillId: 'unit-testing',
+      repoIds: [7],
+      paths: ['src/a.test.ts'],
+      justification: 'The tests in src/a.test.ts cover edge cases.',
+    };
+    state.login = null;
+    const own = await demoIdentity(instance, 'candidate', KEY);
+    expect((await dispute(body, own)).statusCode).toBe(202);
+    expect(vi.mocked(startReassessment).mock.calls[0]!.slice(0, 2)).toEqual([KEY, body]);
+    expect((await dispute({ ...body, justification: '' }, own)).statusCode).toBe(400);
+    expect((await dispute({ ...body, skillId: 'not-a-skill' }, own)).statusCode).toBe(400);
+    expect((await dispute({ ...body, extra: true }, own)).statusCode).toBe(400);
+    const other = await demoIdentity(instance, 'employer', EMPLOYER);
+    expect((await dispute(body, other)).statusCode).toBe(401);
+    expect(startReassessment).toHaveBeenCalledTimes(1);
   });
 });

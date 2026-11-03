@@ -17,12 +17,14 @@ import {
 } from '../db/schema.js';
 import { env } from '../env.js';
 import {
+  activeSelection,
   assessmentByFingerprint,
-  candidateKey,
+  combinedKey,
   jobFingerprint,
   type Lookup,
   type RunOptions,
 } from './assessments.js';
+import type { MuseModel } from './muse.js';
 import type { DemoCandidateInput } from './demo-prepare.js';
 import { matchAssessments } from './matching.js';
 
@@ -71,29 +73,44 @@ export interface CandidateState {
   assessment: CandidateAssessment | null;
   /** Commits and availability behind the current assessment; null when none is current. */
   manifest: InputManifest | null;
+  /** The active repository selection, in order; empty before defaults are chosen. */
+  selection: Awaited<ReturnType<typeof activeSelection>>;
 }
 
-/** Organization accounts and profiles without selected repositories are never graded. */
-export const gradable = (row: Pick<CandidateRow, 'organization' | 'repositories'>) =>
-  !row.organization && row.repositories.length > 0;
+/** Organization accounts are never graded; individuals get default repositories from GitHub. */
+export const gradable = (row: Pick<CandidateRow, 'organization'>) => !row.organization;
 
+/**
+ * The combined markers for exactly the active selection. A changed selection has no current
+ * result until it is combined again, so markers of removed repositories never show as current.
+ */
 export async function candidateState(
   row: CandidateRow,
   options: RunOptions = {},
 ): Promise<CandidateState> {
-  const none = { assessment: null, manifest: null };
+  const none = { assessment: null, manifest: null, selection: [] };
   if (!gradable(row)) return { freshness: freshness('not_applicable'), ...none };
   if (!modelConfigured(options)) return { freshness: freshness('model_not_configured'), ...none };
   const subject = { kind: 'demo' as const, key: row.key };
-  const { cacheKey } = candidateKey(
+  const selection = await activeSelection(subject);
+  if (selection.length === 0) {
+    return { freshness: freshness(row.selectionCheckedAt ? 'not_applicable' : 'not_started'), ...none };
+  }
+  const model = (options.model ?? env.META_MODEL) as MuseModel;
+  const cacheKey = combinedKey(
     subject,
-    { repos: row.repositories, resumeText: candidateInput(row).resumeText },
-    options,
+    model,
+    selection.map((s) => s.repoId),
   );
   const lookup = await assessmentByFingerprint('candidate', subject, cacheKey);
   return lookup.state === 'current'
-    ? { freshness: fromLookup(lookup), assessment: lookup.assessment, manifest: lookup.inputManifest }
-    : { freshness: fromLookup(lookup), ...none };
+    ? {
+        freshness: fromLookup(lookup),
+        assessment: lookup.assessment,
+        manifest: lookup.inputManifest,
+        selection,
+      }
+    : { freshness: fromLookup(lookup), assessment: null, manifest: null, selection };
 }
 
 export interface JobState {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   attributeContributions,
+  conclusivelyNoContributions,
   parseCoauthors,
   type CandidateIdentity,
   type CollectedContributions,
@@ -345,5 +346,23 @@ describe('patch states and coverage', () => {
     expect(out.limitations).toEqual(['squash_hidden_contributions_not_discovered']);
     expect(out.repository).toMatchObject({ fork: true, ownerIsCandidate: true });
     expect(out.contributions).toEqual([]);
+  });
+});
+
+describe('conclusivelyNoContributions', () => {
+  const linkedOther = commit('o1', { authorAccount: OTHER, author: { name: 'O', email: 'o@x.test' } });
+
+  it('holds only for gap-free history without the candidate or any unresolved author', () => {
+    expect(conclusivelyNoContributions(collected([linkedOther]), CANDIDATE)).toBe(true);
+    expect(conclusivelyNoContributions(collected([]), CANDIDATE)).toBe(true);
+  });
+
+  it('fails when the candidate authored anything, history is capped, or an author is unknown', () => {
+    expect(conclusivelyNoContributions(collected([commit('mine')]), CANDIDATE)).toBe(false);
+    const capped = { ...collected([linkedOther]), gaps: [{ reason: 'history_capped' as const }] };
+    expect(conclusivelyNoContributions(capped, CANDIDATE)).toBe(false);
+    // An unlinked email could be the candidate's unverified address.
+    const unlinked = commit('u1', { authorAccount: null, author: { name: 'U', email: 'u@x.test' } });
+    expect(conclusivelyNoContributions(collected([unlinked]), CANDIDATE)).toBe(false);
   });
 });

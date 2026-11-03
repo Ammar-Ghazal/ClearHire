@@ -1,0 +1,1 @@
+ALTER TABLE "repository_selections" ADD COLUMN "fresh_requested_at" timestamp with time zone;

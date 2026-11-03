@@ -40,14 +40,19 @@ const ROLE =
   /\b(engineer|developer|scientist|researcher|architect|director|manager|lead|student|analyst|consultant|designer)\b/i;
 
 /**
- * The résumé's own headline: the line under the name at the top, kept only when it reads as a bare
- * job title. Anything else (contact details, dates, '|' lists, prose) is ambiguous and gives null.
+ * The résumé's own headline: the text after the name on the first line, or the line under it, kept
+ * only when it reads as a bare job title. A '|' headline keeps its first part. Anything else
+ * (contact details, dates, prose) is ambiguous and gives null.
  * shortcut: a positional heuristic over extracted text; store a reviewed title if imports grow.
  */
-export function resumeTitle(resumeText: string | null): string | null {
-  const line = resumeText?.split('\n')[1]?.trim();
-  if (!line || line.length > 60 || /[|@:/\d]/.test(line) || !ROLE.test(line)) return null;
-  return line;
+export function resumeTitle(name: string, resumeText: string | null): string | null {
+  const [first = '', second = ''] = resumeText?.split('\n') ?? [];
+  const named = first.toLowerCase().startsWith(`${name.toLowerCase()} `);
+  for (const line of [named ? first.slice(name.length) : '', second]) {
+    const head = line.split('|')[0]!.trim();
+    if (head && head.length <= 60 && !/[@:/\d]/.test(head) && ROLE.test(head)) return head;
+  }
+  return null;
 }
 
 export const jobInput = (row: JobRow) => ({

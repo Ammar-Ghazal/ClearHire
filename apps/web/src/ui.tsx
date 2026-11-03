@@ -183,7 +183,9 @@ export function MatchRow({ m, side }: { m: MatchSummary; side: DemoSide }) {
   const title = side === 'employer' ? m.candidate.name : m.job.title;
   const detail =
     side === 'employer'
-      ? [m.candidate.title, `@${m.candidate.githubLogin}`, `For: ${m.job.title}`].filter(Boolean).join(' · ')
+      ? [m.candidate.title, `@${m.candidate.githubLogin}`, `For: ${m.job.title}`]
+          .filter(Boolean)
+          .join(' · ')
       : [m.job.employer.name, m.job.location].filter(Boolean).join(' · ');
   return (
     <li>

@@ -154,7 +154,7 @@ async function pairsFor(
     .orderBy(demoJobs.id);
   const people = candidates.map(({ resumeStatus, resumeText, ...c }) => ({
     ...c,
-    title: resumeStatus === 'extracted' ? resumeTitle(resumeText) : null,
+    title: resumeStatus === 'extracted' ? resumeTitle(c.name, resumeText) : null,
   }));
   return jobs.flatMap((job) => people.map((candidate) => ({ candidate, job })));
 }

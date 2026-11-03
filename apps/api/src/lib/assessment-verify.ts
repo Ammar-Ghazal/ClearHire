@@ -15,7 +15,7 @@ import {
   type MuseModel,
 } from './muse.js';
 
-/** Bump when these rules change; stored raw output is then re-verified without a model call. */
+/** Recorded with each result; raw model output is not stored, so a change needs a regrade. */
 export const VERIFIER_VERSION = 1;
 
 const CATALOGUE = { id: SKILL_CATALOGUE.id, version: SKILL_CATALOGUE.version };
@@ -147,12 +147,54 @@ export function verifyCandidate(
   };
 }
 
+const QUOTE_MIN_CHARS = 30;
+
+/**
+ * Results are stored without repository code, but model prose can quote it. Any evidence line of
+ * at least 30 characters that appears verbatim in a free-text field is replaced before storage.
+ */
+export function scrubQuotedSource(
+  assessment: CandidateAssessment,
+  evidence: Pick<CandidateEvidence, 'items'>,
+): CandidateAssessment {
+  const lines = [
+    ...new Set(
+      evidence.items.flatMap((i) =>
+        i.text
+          .split(/\r\n|\n|\r/)
+          .map((l) => l.trim())
+          .filter((l) => l.length >= QUOTE_MIN_CHARS),
+      ),
+    ),
+  ];
+  const scrub = (text: string) =>
+    lines.reduce((t, l) => (t.includes(l) ? t.replaceAll(l, '[source excerpt removed]') : t), text);
+  return {
+    ...assessment,
+    repositories: assessment.repositories.map((r) => ({
+      ...r,
+      functionality: r.functionality.map((f) => ({ ...f, summary: scrub(f.summary) })),
+      qualityObservations: r.qualityObservations.map((q) => ({
+        ...q,
+        observation: scrub(q.observation),
+      })),
+      limitations: r.limitations.map(scrub),
+      contribution: r.contribution && { ...r.contribution, summary: scrub(r.contribution.summary) },
+    })),
+    skills: assessment.skills.map((s) => ({
+      ...s,
+      rationale: scrub(s.rationale),
+      supportingTags: s.supportingTags.map(scrub),
+    })),
+  };
+}
+
 export interface JobInput {
   jobKey: string;
   employerId: string | null;
   title: string;
   text: string;
-  textSource: 'full_description' | 'fixture_summary';
+  textSource: 'full_description' | 'source_summary' | 'fixture_summary';
 }
 
 export function verifyJob(output: JobOutput, job: JobInput, model: MuseModel): JobAssessment {

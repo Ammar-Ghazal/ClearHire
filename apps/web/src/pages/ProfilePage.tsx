@@ -3,12 +3,12 @@
 import type { Arrangement, DemoCandidate, Preferences } from '@clearhire/shared';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { getDemoCandidate, getPreferences, savePreferences } from '../api';
+import { getDemoCandidate, getPreferences, regradeCandidate, savePreferences } from '../api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useChosenIdentity } from '../identity';
 import { ARRANGEMENTS, REPO_STATES, freshnessLabel } from '../status';
-import { ErrorNote, Loading, Page, Panel, useAction, useLoad } from '../ui';
+import { ErrorNote, Loading, Page, Panel, useAction, useLoad, usePoll } from '../ui';
 
 export function ProfilePage() {
   const { identity } = useChosenIdentity();
@@ -44,8 +44,22 @@ export function ProfilePage() {
 
 const yesNo = (v: boolean | null) => (v === null ? 'Not checked' : v ? 'Yes' : 'No');
 
+/** The run state first: a queued or running analysis replaces the saved result's label. */
+function analysisLabel(candidate: DemoCandidate): string {
+  if (candidate.run.status === 'queued') return 'Queued for analysis';
+  if (candidate.run.status === 'pending') return 'Analyzing repositories';
+  if (candidate.run.status === 'failed') {
+    return `Last analysis failed (${candidate.run.errorCode ?? 'unknown'})`;
+  }
+  return freshnessLabel(candidate.freshness);
+}
+
 function SeekerProfile({ candidateKey }: { candidateKey: string }) {
-  const { data, error } = useLoad(() => getDemoCandidate(candidateKey), [candidateKey]);
+  const { data, error, reload } = useLoad(() => getDemoCandidate(candidateKey), [candidateKey]);
+  const regrade = useAction();
+  const running = data?.run.status === 'queued' || data?.run.status === 'pending';
+  // Skill tags refresh when the run finishes.
+  usePoll(running, reload);
   if (!data) {
     return (
       <Page title="Profile">
@@ -112,10 +126,26 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
           <div>
             <dt className="text-slate-500">Analysis</dt>
             <dd>
-              {freshnessLabel(data.freshness)}
-              {data.freshness.completedAt &&
+              {analysisLabel(data)}
+              {!running &&
+                data.freshness.completedAt &&
                 ` · ${new Date(data.freshness.completedAt).toLocaleDateString()}`}
             </dd>
+            {data.repositoryCount > 0 && !data.organization && (
+              <dd className="mt-2 space-y-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={running || regrade.busy}
+                  onClick={async () => {
+                    if (await regrade.run(() => regradeCandidate(candidateKey))) reload();
+                  }}
+                >
+                  Regrade from latest code
+                </Button>
+                <ErrorNote error={regrade.error} />
+              </dd>
+            )}
           </div>
         </dl>
         {data.resume.limitations.length > 0 && (

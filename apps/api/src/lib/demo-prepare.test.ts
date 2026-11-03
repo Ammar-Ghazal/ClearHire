@@ -1,16 +1,16 @@
 import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CANDIDATE, fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
-import type { PreparedRepo } from './candidate-evidence.js';
+import { fixtureRepo, sourceLines } from './candidate-fixtures.js';
 
-// GitHub is mocked at the module boundary: these tests count which selections get fetched.
-const fetched: string[] = [];
+// GitHub is mocked at the module boundary: these tests record what each run fetches.
+const fetched: { repo: string; ref?: string }[] = [];
 vi.mock('./ingest.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./ingest.js')>();
   return {
     ...actual,
-    ingestRepo: vi.fn(async (_octokit: unknown, { repo }: { repo: string }) => {
-      fetched.push(repo);
+    ingestRepo: vi.fn(async (_octokit: unknown, { repo, ref }: { repo: string; ref?: string }) => {
+      fetched.push({ repo, ref });
+      if (repo === 'gone') throw Object.assign(new Error('missing'), { status: 404 });
       return fixtureRepo(repo, [{ path: 'src/x.ts', content: sourceLines(5) }], []).snapshot;
     }),
   };
@@ -21,138 +21,60 @@ vi.mock('./contributions.js', () => ({
   ),
 }));
 
-const { effectiveInput, prepareDemoCandidate, transientRepos } = await import('./demo-prepare.js');
+const { prepareDemoCandidate } = await import('./demo-prepare.js');
 
-const repo = (name: string): PreparedRepo =>
-  fixtureRepo(name, [{ path: 'src/a.ts', content: sourceLines(10) }], []);
-const sel = (name: string, pinnedSha: string | null = `snap-${name}`) => ({
-  owner: 'octo',
-  repo: name,
-  pinnedSha,
-});
+const sel = (name: string) => ({ owner: 'octo', repo: name, pinnedSha: `snap-${name}` });
 const candidate = (repositories = [sel('one'), sel('two')], resumeText: string | null = null) => ({
   key: 'cand',
   githubLogin: 'CAND',
   repositories,
   resumeText,
 });
-const octokit = {
-  rest: { users: { getByUsername: vi.fn(async () => ({ data: { id: 101, login: 'cand' } })) } },
-} as unknown as Octokit;
+const octokitFor = (user: { id: number; login: string; type?: string }) =>
+  ({
+    rest: { users: { getByUsername: vi.fn(async () => ({ data: { type: 'User', ...user } })) } },
+  }) as unknown as Octokit;
+const octokit = octokitFor({ id: 101, login: 'cand' });
 
 beforeEach(() => {
   fetched.length = 0;
-  vi.mocked(octokit.rest.users.getByUsername).mockClear();
-});
-
-describe('effectiveInput', () => {
-  const prepared = fixtureCandidate([repo('one'), repo('two')], { resume: { text: 'stale' } });
-
-  it('uses the current resume text, never the one embedded in the prepared file', () => {
-    const ready = effectiveInput(candidate(undefined, 'current'), prepared);
-    expect(ready.kind === 'ready' && ready.prepared.resume).toEqual({ text: 'current' });
-    const none = effectiveInput(candidate(), prepared);
-    expect(none.kind === 'ready' && none.prepared.resume).toBeNull();
-  });
-
-  it('drops deselected repositories and compares logins case-insensitively', () => {
-    const result = effectiveInput(candidate([sel('two')]), prepared);
-    expect(result.kind === 'ready' && result.prepared.repos.map((r) => r.repo)).toEqual(['two']);
-  });
-
-  it('reports missing selections and changed pins as not prepared', () => {
-    expect(effectiveInput(candidate([sel('one'), sel('three')]), prepared)).toEqual({
-      kind: 'not_prepared',
-      missing: [sel('three')],
-    });
-    expect(
-      effectiveInput(candidate([sel('one', 'other-sha'), sel('two')]), prepared),
-    ).toMatchObject({
-      kind: 'not_prepared',
-      missing: [sel('one', 'other-sha')],
-    });
-  });
-
-  it('rejects preparation for another subject, identity or collector', () => {
-    const otherLogin = fixtureCandidate([repo('one'), repo('two')], {
-      identity: { ...CANDIDATE, login: 'someone' },
-    });
-    expect(effectiveInput(candidate(), otherLogin).kind).toBe('not_prepared');
-    expect(effectiveInput({ ...candidate(), key: 'other' }, prepared).kind).toBe('not_prepared');
-    const foreign = { ...repo('one'), collectedFor: 999 };
-    const mixed = fixtureCandidate([foreign, repo('two')]);
-    expect(effectiveInput(candidate(), mixed)).toMatchObject({ missing: [sel('one')] });
-    const moved = repo('one');
-    moved.collected = {
-      ...moved.collected,
-      repository: { ...moved.collected.repository, repo: 'x' },
-    };
-    expect(effectiveInput(candidate(), fixtureCandidate([moved, repo('two')]))).toMatchObject({
-      missing: [sel('one')],
-    });
-  });
-
-  it('keeps unavailable repositories as incomplete evidence', () => {
-    const partial = fixtureCandidate([
-      repo('one'),
-      { owner: 'octo', repo: 'two', unavailable: 'not_found', requestedSha: 'snap-two' },
-    ]);
-    const result = effectiveInput(candidate(), partial);
-    expect(result.kind).toBe('ready');
-    expect(result.kind === 'ready' && transientRepos(result.prepared)).toEqual([]);
-  });
-
-  it('treats an unavailable entry as not prepared once its pin changes', () => {
-    const partial = fixtureCandidate([
-      repo('one'),
-      { owner: 'octo', repo: 'two', unavailable: 'not_found', requestedSha: 'gone' },
-    ]);
-    expect(effectiveInput(candidate([sel('one'), sel('two', 'gone')]), partial).kind).toBe('ready');
-    const repinned = effectiveInput(candidate(), partial);
-    expect(repinned).toEqual({ kind: 'not_prepared', missing: [sel('two')] });
-  });
 });
 
 describe('prepareDemoCandidate', () => {
-  it('fetches only missing selections and keeps valid snapshots', async () => {
-    const existing = fixtureCandidate([repo('one')]);
-    const result = await prepareDemoCandidate(octokit, candidate(), existing, {
-      refetchTransient: false,
-    });
-    expect(fetched).toEqual(['two']);
-    expect(octokit.rest.users.getByUsername).not.toHaveBeenCalled();
+  it('fetches every selection at its default-branch head, never the recorded pin', async () => {
+    const result = await prepareDemoCandidate(octokit, candidate());
+    expect(fetched).toEqual([
+      { repo: 'one', ref: undefined },
+      { repo: 'two', ref: undefined },
+    ]);
     expect(result.repos.map((r) => r.repo)).toEqual(['one', 'two']);
-    expect(result.resume).toBeNull();
-  });
-
-  it('re-fetches transient failures only when asked', async () => {
-    const existing = fixtureCandidate([
-      repo('one'),
-      { owner: 'octo', repo: 'two', unavailable: 'rate_limited', requestedSha: 'snap-two' },
-    ]);
-    const ready = effectiveInput(candidate(), existing);
-    expect(ready.kind === 'ready' && transientRepos(ready.prepared)).toEqual(['octo/two']);
-    await prepareDemoCandidate(octokit, candidate(), existing, { refetchTransient: false });
-    expect(fetched).toEqual([]);
-    await prepareDemoCandidate(octokit, candidate(), existing, { refetchTransient: true });
-    expect(fetched).toEqual(['two']);
-  });
-
-  it('fetches the new pin for a repository that was unavailable at its old pin', async () => {
-    const existing = fixtureCandidate([
-      repo('one'),
-      { owner: 'octo', repo: 'two', unavailable: 'not_found', requestedSha: 'gone' },
-    ]);
-    await prepareDemoCandidate(octokit, candidate(), existing, { refetchTransient: false });
-    expect(fetched).toEqual(['two']);
-  });
-
-  it('starts over when the stored identity does not match the profile', async () => {
-    const existing = fixtureCandidate([repo('one'), repo('two')], {
-      identity: { ...CANDIDATE, login: 'someone' },
+    expect(result).toMatchObject({
+      subject: { kind: 'demo', key: 'cand' },
+      identity: { githubUserId: 101, login: 'cand' },
+      resume: null,
+      dataUse: 'approved_public_demo',
     });
-    await prepareDemoCandidate(octokit, candidate(), existing, { refetchTransient: false });
-    expect(octokit.rest.users.getByUsername).toHaveBeenCalledOnce();
-    expect(fetched).toEqual(['one', 'two']);
+  });
+
+  it('fetches again on every run and attaches the current resume text', async () => {
+    await prepareDemoCandidate(octokit, candidate([sel('one')]));
+    const again = await prepareDemoCandidate(octokit, candidate([sel('one')], 'current'));
+    expect(fetched.map((f) => f.repo)).toEqual(['one', 'one']);
+    expect(again.resume).toEqual({ text: 'current' });
+  });
+
+  it('records a GitHub failure as an unavailable repository', async () => {
+    const result = await prepareDemoCandidate(octokit, candidate([sel('one'), sel('gone')]));
+    expect(result.repos[1]).toEqual({ owner: 'octo', repo: 'gone', unavailable: 'not_found' });
+  });
+
+  it('refuses another account and organization accounts before fetching anything', async () => {
+    await expect(
+      prepareDemoCandidate(octokitFor({ id: 1, login: 'someone' }), candidate()),
+    ).rejects.toMatchObject({ code: 'identity_mismatch' });
+    await expect(
+      prepareDemoCandidate(octokitFor({ id: 1, login: 'cand', type: 'Organization' }), candidate()),
+    ).rejects.toMatchObject({ code: 'organization_account' });
+    expect(fetched).toEqual([]);
   });
 });

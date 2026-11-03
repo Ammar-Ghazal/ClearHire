@@ -21,7 +21,8 @@ try {
   console.log(
     `Valid: ${employers.length} employers, ${jobs.length} jobs ` +
       `(${jobs.filter((j) => !j.inScope).length} out of scope), ${candidates.length} candidates, ` +
-      `${bundle.pdfs.size} resume PDFs, ${bundle.prepared.size} prepared files`,
+      `${bundle.pdfs.size} resume PDFs, ` +
+      `${jobs.filter((j) => j.textSource !== 'fixture_summary').length} retrieved postings`,
   );
   const keys = candidates.map((c) => c.key);
   const stored = values.check ? new Map<string, string | null>() : await storedResumeHashes(keys);

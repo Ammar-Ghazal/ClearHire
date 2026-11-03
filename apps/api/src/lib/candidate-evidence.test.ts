@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CANDIDATE, fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
-import {
-  buildCandidateEvidence,
-  EvidenceInputError,
-  parsePreparedCandidate,
-  serializePreparedCandidate,
-} from './candidate-evidence.js';
+import { fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
+import { buildCandidateEvidence, EvidenceInputError } from './candidate-evidence.js';
 import { sha256Hex, splitLines } from './packets.js';
 
 const LARGE = { evidenceChars: 10_000_000 };
@@ -187,17 +182,5 @@ describe('buildCandidateEvidence', () => {
     expect(evidence.coverage.unavailableRepos).toEqual([
       { repo: 'octo/gone', reason: 'not_found' },
     ]);
-  });
-
-  it('round-trips prepared candidates through JSON', () => {
-    const repo = fixtureRepo(
-      'one',
-      [{ path: 'src/a.ts', content: sourceLines(5) }],
-      [{ sha: 'c1', path: 'src/a.ts', start: 1, end: 2 }],
-    );
-    const prepared = fixtureCandidate([repo], { resume: { text: 'Resume' } });
-    const restored = parsePreparedCandidate(JSON.parse(serializePreparedCandidate(prepared)));
-    expect(restored).toEqual(prepared);
-    expect(restored.identity).toEqual(CANDIDATE);
   });
 });

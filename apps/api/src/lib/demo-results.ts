@@ -1,5 +1,5 @@
-// Read side of the demo: current inputs, freshness and matches. Uses only stored data and the
-// shared fingerprint, so reads never call GitHub or Muse and never show an old result as current.
+// Read side of the demo: freshness and matches. Uses only stored metadata and the shared code-free
+// input key, so reads never call GitHub or Muse and never show an old result as current.
 import {
   SKILL_CATALOGUE,
   type CandidateAssessment,
@@ -9,19 +9,22 @@ import {
 } from '@clearhire/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { demoCandidates, demoJobs, jobPriorityOverrides } from '../db/schema.js';
+import {
+  demoCandidates,
+  demoJobs,
+  jobPriorityOverrides,
+  type InputManifest,
+} from '../db/schema.js';
 import { env } from '../env.js';
 import {
   assessmentByFingerprint,
-  candidateFingerprint,
+  candidateKey,
   jobFingerprint,
   type Lookup,
   type RunOptions,
 } from './assessments.js';
-import { parsePreparedCandidate } from './candidate-evidence.js';
-import { effectiveInput, type DemoCandidateInput, type EffectiveInput } from './demo-prepare.js';
+import type { DemoCandidateInput } from './demo-prepare.js';
 import { matchAssessments } from './matching.js';
-import { MuseError } from './muse.js';
 
 export type CandidateRow = typeof demoCandidates.$inferSelect;
 export type JobRow = typeof demoJobs.$inferSelect;
@@ -32,9 +35,6 @@ export const candidateInput = (row: CandidateRow): DemoCandidateInput => ({
   repositories: row.repositories,
   resumeText: row.resumeStatus === 'extracted' ? row.resumeText : null,
 });
-
-export const storedPrepared = (row: CandidateRow) =>
-  row.prepared === null ? null : parsePreparedCandidate(row.prepared);
 
 export const jobInput = (row: JobRow) => ({
   jobKey: row.id,
@@ -65,48 +65,35 @@ function fromLookup(lookup: Lookup<CandidateAssessment | JobAssessment>): Freshn
 }
 
 const modelConfigured = (options: RunOptions) => Boolean(options.model ?? env.META_MODEL);
-const codeOf = (err: unknown) => (err instanceof MuseError ? err.code : 'invalid_prepared_data');
 
 export interface CandidateState {
-  input: EffectiveInput | null;
   freshness: Freshness;
   assessment: CandidateAssessment | null;
+  /** Commits and availability behind the current assessment; null when none is current. */
+  manifest: InputManifest | null;
 }
+
+/** Organization accounts and profiles without selected repositories are never graded. */
+export const gradable = (row: Pick<CandidateRow, 'organization' | 'repositories'>) =>
+  !row.organization && row.repositories.length > 0;
 
 export async function candidateState(
   row: CandidateRow,
   options: RunOptions = {},
 ): Promise<CandidateState> {
-  if (row.organization || row.repositories.length === 0) {
-    return { input: null, freshness: freshness('not_applicable'), assessment: null };
-  }
-  let input: EffectiveInput;
-  try {
-    input = effectiveInput(candidateInput(row), storedPrepared(row));
-  } catch {
-    return { input: null, freshness: freshness('input_error'), assessment: null };
-  }
-  if (input.kind !== 'ready')
-    return { input, freshness: freshness('not_prepared'), assessment: null };
-  if (!modelConfigured(options)) {
-    return { input, freshness: freshness('model_not_configured'), assessment: null };
-  }
-  let cacheKey: string;
-  try {
-    cacheKey = candidateFingerprint(input.prepared, options).cacheKey;
-  } catch (err) {
-    return {
-      input,
-      freshness: freshness('input_error', { errorCode: codeOf(err) }),
-      assessment: null,
-    };
-  }
-  const lookup = await assessmentByFingerprint('candidate', input.prepared.subject, cacheKey);
-  return {
-    input,
-    freshness: fromLookup(lookup),
-    assessment: lookup.state === 'current' ? lookup.assessment : null,
-  };
+  const none = { assessment: null, manifest: null };
+  if (!gradable(row)) return { freshness: freshness('not_applicable'), ...none };
+  if (!modelConfigured(options)) return { freshness: freshness('model_not_configured'), ...none };
+  const subject = { kind: 'demo' as const, key: row.key };
+  const { cacheKey } = candidateKey(
+    subject,
+    { repos: row.repositories, resumeText: candidateInput(row).resumeText },
+    options,
+  );
+  const lookup = await assessmentByFingerprint('candidate', subject, cacheKey);
+  return lookup.state === 'current'
+    ? { freshness: fromLookup(lookup), assessment: lookup.assessment, manifest: lookup.inputManifest }
+    : { freshness: fromLookup(lookup), ...none };
 }
 
 export interface JobState {

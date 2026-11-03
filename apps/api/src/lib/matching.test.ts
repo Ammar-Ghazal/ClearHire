@@ -171,10 +171,12 @@ describe('matchAssessments', () => {
     expect(result).toMatchObject({ status: 'scored', provisional: true, compatibility: 0 });
   });
 
-  it('marks matches against an abbreviated fixture summary provisional', () => {
+  it('marks matches against research notes or a paraphrased posting provisional', () => {
     const summary = { ...posting, textSource: 'fixture_summary' as const };
+    const paraphrase = { ...posting, textSource: 'source_summary' as const };
     expect(matchAssessments(candidate([]), posting)).toMatchObject({ provisional: false });
     expect(matchAssessments(candidate([]), summary)).toMatchObject({ provisional: true });
+    expect(matchAssessments(candidate([]), paraphrase)).toMatchObject({ provisional: true });
   });
 
   it('leaves zero-priority and out-of-scope jobs unscored', () => {

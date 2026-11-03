@@ -256,7 +256,7 @@ export const JobAssessmentSchema = z.object({
   title: z.string(),
   model: z.string(),
   catalogue: CatalogueRefSchema,
-  textSource: z.enum(['full_description', 'fixture_summary']),
+  textSource: z.enum(['full_description', 'source_summary', 'fixture_summary']),
   inScope: z.boolean(),
   outOfScopeReason: z.string().nullable(),
   requirements: z.array(JobRequirementSchema),
@@ -316,8 +316,9 @@ export type MatchResult = z.infer<typeof MatchResultSchema>;
 // ---- Demo screen ----
 
 /** Run state of one demo subject, separate from whether its saved assessment is current. */
+/** `queued` waits for the analysis worker; `pending` is fetching and grading. */
 export const RunStatusSchema = z.object({
-  status: z.enum(['idle', 'pending', 'failed']),
+  status: z.enum(['idle', 'queued', 'pending', 'failed']),
   errorCode: z.string().nullable(),
 });
 export type RunStatus = z.infer<typeof RunStatusSchema>;
@@ -333,10 +334,8 @@ export const FreshnessSchema = z.object({
     'failed',
     'outdated',
     'not_started',
-    'not_prepared',
     'not_applicable',
     'model_not_configured',
-    'input_error',
   ]),
   /** Saved status when current: complete, partial or no_attributed_evidence. */
   assessmentStatus: z.enum(['complete', 'partial', 'no_attributed_evidence']).nullable(),
@@ -391,7 +390,6 @@ export const RepositoryBreakdownSchema = z.object({
     'not_described',
     'no_attributed_evidence',
     'unavailable',
-    'not_prepared',
     'pending',
     'failed',
     'outdated',
@@ -447,7 +445,7 @@ export const DemoCandidateSchema = DemoCandidateSummarySchema.extend({
     userSuppliedStatus: z.string().nullable(),
   }),
   freshness: FreshnessSchema,
-  /** Unavailable repositories whose failure was transient; an explicit retry re-fetches them. */
+  /** Unavailable repositories whose failure was transient; a regrade fetches them again. */
   transientRepos: z.array(z.string()),
   repositories: z.array(RepositoryBreakdownSchema),
 });
@@ -467,7 +465,8 @@ export const DemoJobSummarySchema = z.object({
   sourceUrl: z.string(),
   sourceChecked: z.string().nullable(),
   inScope: z.boolean(),
-  textSource: z.enum(['full_description', 'fixture_summary']),
+  /** `source_summary`: the source paraphrased the posting; `fixture_summary`: research notes only. */
+  textSource: z.enum(['full_description', 'source_summary', 'fixture_summary']),
   run: RunStatusSchema,
 });
 export type DemoJobSummary = z.infer<typeof DemoJobSummarySchema>;
@@ -475,6 +474,8 @@ export const DemoJobListSchema = z.array(DemoJobSummarySchema);
 
 export const DemoJobSchema = DemoJobSummarySchema.extend({
   text: z.string(),
+  retrievedOn: z.string().nullable(),
+  sourceLimitations: z.array(z.string()),
   freshness: FreshnessSchema,
   requirements: z.array(
     JobRequirementSchema.pick({
@@ -564,7 +565,10 @@ export const RelationshipSchema = z.object({
 });
 export type Relationship = z.infer<typeof RelationshipSchema>;
 
-/** `updating` means a run is pending; every non-scored state names why there is no score. */
+/**
+ * `updating`: no current result yet and a run is queued or pending. Every other non-scored state
+ * names why there is no score.
+ */
 export const ScoreSchema = z.object({
   state: z.enum([
     'scored',
@@ -574,10 +578,13 @@ export const ScoreSchema = z.object({
     'outdated',
     'not_analyzed',
     'no_attributed_code',
+    'profile_incomplete',
   ]),
   compatibility: z.number().nullable(),
   evidenceCoverage: z.number().nullable(),
   provisional: z.boolean(),
+  /** Either side is queued or being analysed, even when an earlier result is scored. */
+  pending: z.boolean(),
 });
 export type Score = z.infer<typeof ScoreSchema>;
 
@@ -682,3 +689,19 @@ export const PreferencesSchema = z
   })
   .strict();
 export type Preferences = z.infer<typeof PreferencesSchema>;
+
+// ---- Top matches ----
+
+export const TOP_MATCHES = { min: 5, max: 10, default: 5 } as const;
+
+/** Scored pairs only, highest compatibility first, at most `n` (an integer from 5 through 10). */
+export function topMatches<T extends { score: Score }>(matches: T[], n: number): T[] {
+  const limit = Math.min(TOP_MATCHES.max, Math.max(TOP_MATCHES.min, Math.round(n)));
+  return matches
+    .filter((m) => m.score.state === 'scored')
+    .sort((a, b) => b.score.compatibility! - a.score.compatibility!)
+    .slice(0, limit);
+}
+
+/** True while any pair waits on an analysis, scored or not, displayed or not. */
+export const hasPendingWork = (matches: { score: Score }[]) => matches.some((m) => m.score.pending);

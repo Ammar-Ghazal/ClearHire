@@ -1,5 +1,5 @@
 // Board 4: one match. Current stage and each party's answer, decisions, Discussion, interview,
-// offer, and the server's requirement-by-requirement evidence. No dated history.
+// offer, the server's requirement-by-requirement evidence and the posting. No dated history.
 import {
   SKILL_CATALOGUE,
   evidenceUrl,
@@ -10,7 +10,14 @@ import {
 } from '@clearhire/shared';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { answerMatch, confirmInterviewStage, getMatchDetail, getMessages, postMessage } from '../api';
+import {
+  answerMatch,
+  confirmInterviewStage,
+  getDemoJob,
+  getMatchDetail,
+  getMessages,
+  postMessage,
+} from '../api';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { useChosenIdentity } from '../identity';
@@ -20,6 +27,7 @@ import {
   Loading,
   Page,
   Panel,
+  PostingText,
   ScoreSummary,
   StageChip,
   otherName,
@@ -91,6 +99,10 @@ export function MatchDetailPage() {
 
       <Panel title="Requirements and evidence">
         <Requirements detail={data} side={side} />
+      </Panel>
+
+      <Panel title="Posting">
+        <Posting id={job} />
       </Panel>
     </Page>
   );
@@ -179,6 +191,12 @@ function Decision({
       <ErrorNote error={act.error} />
     </div>
   );
+}
+
+/** Both sides read the same posting text and source details. */
+function Posting({ id }: { id: string }) {
+  const { data, error } = useLoad(() => getDemoJob(id), [id]);
+  return data ? <PostingText posting={data} /> : <Loading error={error} />;
 }
 
 function Discussion({

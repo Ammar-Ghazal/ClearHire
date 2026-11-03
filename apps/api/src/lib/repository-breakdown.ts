@@ -9,7 +9,7 @@ import {
   type Freshness,
   type RepositoryBreakdown,
 } from '@clearhire/shared';
-import type { PreparedCandidate } from './candidate-evidence.js';
+import type { InputManifest } from '../db/schema.js';
 import { fullName, type SelectedRepo } from './demo-prepare.js';
 
 const SKILL_NAMES = new Map<string, string>(SKILL_CATALOGUE.skills.map((s) => [s.id, s.name]));
@@ -28,9 +28,8 @@ const link = (ref: EvidenceRef) => ({
 
 export interface BreakdownInput {
   repositories: SelectedRepo[];
-  prepared: PreparedCandidate | null;
-  /** Selections without a valid snapshot or unavailable entry. */
-  missing: SelectedRepo[];
+  /** What the current assessment graded; null when none is current. */
+  manifest: InputManifest | null;
   freshness: Freshness;
   /** Only a current assessment; never one for older inputs. */
   assessment: CandidateAssessment | null;
@@ -40,13 +39,12 @@ export function buildRepositoryBreakdown(input: BreakdownInput): RepositoryBreak
   const { assessment } = input;
   return input.repositories.map((sel) => {
     const name = fullName(sel);
-    const missing = input.missing.some((m) => same(fullName(m), name));
-    const entry = missing ? undefined : input.prepared?.repos.find((r) => same(fullName(r), name));
+    const entry = input.manifest?.repos.find((r) => same(r.repo, name));
     const base: RepositoryBreakdown = {
       repo: name,
       url: `https://github.com/${name}`,
       pinnedSha: sel.pinnedSha,
-      commitSha: entry && !('unavailable' in entry) ? entry.snapshot.commitSha : null,
+      commitSha: entry?.commitSha ?? null,
       state: 'not_analyzed',
       reason: null,
       functionality: [],
@@ -57,9 +55,6 @@ export function buildRepositoryBreakdown(input: BreakdownInput): RepositoryBreak
       duplicates: [],
       coverage: { sampled: false, omittedRanges: 0, attributionGaps: [], limitations: [] },
     };
-    if (missing || !entry) return { ...base, state: 'not_prepared' };
-    if ('unavailable' in entry) return { ...base, state: 'unavailable', reason: entry.unavailable };
-
     switch (input.freshness.state) {
       case 'pending':
         return { ...base, state: 'pending' };
@@ -72,7 +67,8 @@ export function buildRepositoryBreakdown(input: BreakdownInput): RepositoryBreak
       default:
         return base;
     }
-    if (!assessment) return base;
+    if (!assessment || !entry) return base;
+    if (entry.unavailable) return { ...base, state: 'unavailable', reason: entry.unavailable };
     if (assessment.status === 'no_attributed_evidence') {
       return { ...base, state: 'no_attributed_evidence' };
     }

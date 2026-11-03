@@ -5,7 +5,9 @@ import {
   DemoJobListSchema,
   DemoJobSchema,
   DemoMatchSchema,
+  hasPendingWork,
   MatchListSchema,
+  topMatches,
 } from '@clearhire/shared';
 import { eq, like, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +55,6 @@ const {
   skillAssessments,
 } = await import('../db/schema.js');
 const { analyzeCandidate, analyzeJob } = await import('../lib/assessments.js');
-const { serializePreparedCandidate } = await import('../lib/candidate-evidence.js');
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 async function app() {
@@ -137,7 +138,10 @@ describe('demo mutations: authorization and input', () => {
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ result: 'started' });
-    expect(vi.mocked(startCandidateRun).mock.calls[0]!.slice(0, 2)).toEqual(['c', { retry: true }]);
+    expect(vi.mocked(startCandidateRun).mock.calls[0]!.slice(0, 2)).toEqual([
+      'c',
+      { retry: true, fresh: false },
+    ]);
 
     vi.mocked(startJobRun).mockResolvedValueOnce({ result: 'cached' });
     res = await (await app()).inject({ method: 'POST', url: '/demo/jobs/j/analysis' });
@@ -300,8 +304,6 @@ describe.runIf(up)('demo reads (Postgres)', () => {
         limitedSource: false,
         githubAccountKind: 'user',
       },
-      prepared: JSON.parse(serializePreparedCandidate(prepared)),
-      preparedSha256: 'x',
     });
   });
 
@@ -315,7 +317,12 @@ describe.runIf(up)('demo reads (Postgres)', () => {
       freshness: { state: 'not_started' },
       resume: { status: 'extracted' },
     });
-    expect(body.repositories[0]).toMatchObject({ state: 'not_analyzed', commitSha: 'snap-one' });
+    // Nothing graded yet: the recorded pin is shown, but no graded commit exists.
+    expect(body.repositories[0]).toMatchObject({
+      state: 'not_analyzed',
+      pinnedSha: 'snap-one',
+      commitSha: null,
+    });
     for (const text of [list.body, detail.body]) {
       for (const f of forbidden) expect(text).not.toContain(f);
     }
@@ -342,9 +349,25 @@ describe.runIf(up)('demo reads (Postgres)', () => {
       (await instance.inject({ method: 'GET', url: `/demo/matches?job=${JOB}`, cookies })).json(),
     );
     expect(list.find((m) => m.candidate.key === KEY)).toMatchObject({
-      score: { state: 'not_analyzed', compatibility: null },
+      score: { state: 'not_analyzed', compatibility: null, pending: false },
       relationship: { stage: 'waiting', employerAnswer: 'maybe' },
     });
+    // Other test files share the database, so only this pair is checked.
+    const mine = (l: typeof list) => l.filter((m) => m.candidate.key === KEY);
+    expect(topMatches(mine(list), 5)).toEqual([]);
+    expect(hasPendingWork(mine(list))).toBe(false);
+
+    // A queued analysis is pending work even though nothing is scored or displayed yet.
+    await db.update(demoCandidates).set({ runStatus: 'queued' }).where(eq(demoCandidates.key, KEY));
+    const queued = MatchListSchema.parse(
+      (await instance.inject({ method: 'GET', url: `/demo/matches?job=${JOB}`, cookies })).json(),
+    );
+    expect(queued.find((m) => m.candidate.key === KEY)!.score).toMatchObject({
+      state: 'updating',
+      pending: true,
+    });
+    expect(hasPendingWork(mine(queued))).toBe(true);
+    await db.update(demoCandidates).set({ runStatus: 'idle' }).where(eq(demoCandidates.key, KEY));
     // The out-of-scope posting is never listed.
     expect(list.some((m) => m.job.id === OUT)).toBe(false);
   });
@@ -495,5 +518,26 @@ describe.runIf(up)('demo reads (Postgres)', () => {
     expect(
       await db.select().from(jobPriorityOverrides).where(eq(jobPriorityOverrides.jobKey, JOB)),
     ).toHaveLength(0);
+  });
+
+  it('lets a seeker regrade only their own profile, and operators any profile', async () => {
+    const instance = await app();
+    vi.mocked(startCandidateRun).mockResolvedValue({ result: 'started', done: Promise.resolve() });
+    const rerun = (key: string, cookies?: Record<string, string>) =>
+      instance.inject({ method: 'POST', url: `/demo/candidates/${key}/rerun`, cookies });
+    const own = await demoIdentity(instance, 'candidate', KEY);
+    expect((await rerun(KEY, own)).statusCode).toBe(202);
+    expect(vi.mocked(startCandidateRun).mock.calls[0]!.slice(0, 2)).toEqual([
+      KEY,
+      { retry: true, fresh: true },
+    ]);
+    expect((await rerun('someone-else', own)).statusCode).toBe(401);
+    expect((await rerun(KEY, await demoIdentity(instance, 'employer', EMPLOYER))).statusCode).toBe(
+      401,
+    );
+    state.login = 'alice';
+    state.operators = ['alice'];
+    expect((await rerun('someone-else')).statusCode).toBe(202);
+    expect(startCandidateRun).toHaveBeenCalledTimes(2);
   });
 });

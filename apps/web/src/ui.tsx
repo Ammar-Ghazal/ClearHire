@@ -1,10 +1,10 @@
 // Small pieces shared by the pages: loading, actions, errors, stage chips and score summaries.
-import type { DemoSide, MatchSummary, RelationshipStage, Score } from '@clearhire/shared';
+import type { DemoJob, DemoSide, MatchSummary, RelationshipStage, Score } from '@clearhire/shared';
 import { Link } from 'react-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiRequestError } from './api';
 import { Badge } from './components/ui/badge';
-import { SCORE_LABELS, STAGES, percent, stageLabel } from './status';
+import { SCORE_LABELS, STAGES, TEXT_SOURCES, percent, stageLabel } from './status';
 
 const ERRORS: Record<string, string> = {
   job_not_current: 'This posting needs a current analysis before priorities can change.',
@@ -13,6 +13,10 @@ const ERRORS: Record<string, string> = {
   discussion_closed: 'Discussion is not open for this match.',
   interview_confirmed: 'A time is already confirmed.',
   offer_frozen: 'A shared offer cannot be changed.',
+  in_progress: 'An analysis is already running.',
+  organization_account: 'Organization accounts are not graded as a person.',
+  no_selected_repositories: 'This profile has no selected repositories to grade.',
+  model_not_configured: 'Analysis is not configured on the server.',
   invalid_input: 'Check the highlighted values and try again.',
   not_found: 'This item is not available to the current demo identity.',
   unauthenticated: 'Only the posting’s employer or a signed-in demo operator can do this.',
@@ -41,6 +45,15 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
     };
   }, [...deps, version]);
   return { data, setData, error, reload: () => setVersion((v) => v + 1) };
+}
+
+/** Calls `reload` every 5 seconds while `active`; refreshes keep the data already shown. */
+export function usePoll(active: boolean, reload: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(reload, 5000);
+    return () => clearInterval(timer);
+  }, [active]);
 }
 
 /** Runs one action at a time and keeps its error beside the control that started it. */
@@ -199,5 +212,28 @@ export function MatchList({ matches, side }: { matches: MatchSummary[]; side: De
         <MatchRow key={`${m.candidate.key}/${m.job.id}`} m={m} side={side} />
       ))}
     </ul>
+  );
+}
+
+/** The posting text as retrieved, with where and when it came from and what it cannot show. */
+export function PostingText({ posting }: { posting: DemoJob }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-500">
+        {TEXT_SOURCES[posting.textSource]}
+        {posting.retrievedOn && ` · retrieved ${posting.retrievedOn}`} ·{' '}
+        <a href={posting.sourceUrl} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+          Original posting
+        </a>
+      </p>
+      {posting.sourceLimitations.length > 0 && (
+        <ul className="list-disc pl-5 text-sm text-amber-800">
+          {posting.sourceLimitations.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      )}
+      <p className="text-sm whitespace-pre-wrap text-slate-700">{posting.text}</p>
+    </div>
   );
 }

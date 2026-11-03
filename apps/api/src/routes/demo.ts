@@ -1,5 +1,6 @@
 // Demo screen routes. Reads return stored results through explicit public fields and never call
-// GitHub or Muse; analysis actions and priority changes are limited to allowlisted operators.
+// GitHub or Muse. A seeker may regrade their own profile; other analysis actions and priority
+// changes are limited to the posting's employer or allowlisted operators.
 import {
   PrioritySchema,
   SKILL_CATALOGUE,
@@ -19,17 +20,21 @@ import { isDemoOperator } from '../env.js';
 import { clearPriorityOverride, setPriorityOverride } from '../lib/assessments.js';
 import { currentDemoIdentity } from '../lib/demo-identity.js';
 import type { ResumeSource } from '../lib/demo-import.js';
-import { transientRepos } from '../lib/demo-prepare.js';
+import { TRANSIENT } from '../lib/demo-prepare.js';
 import {
   candidateState,
   demoMatch,
   jobState,
   priorityOverrides,
-  storedPrepared,
   type CandidateRow,
   type JobRow,
 } from '../lib/demo-results.js';
-import { startCandidateRun, startJobRun, type Started } from '../lib/demo-runner.js';
+import {
+  safeErrorCode,
+  startCandidateRun,
+  startJobRun,
+  type Started,
+} from '../lib/demo-runner.js';
 import { buildRepositoryBreakdown } from '../lib/repository-breakdown.js';
 import { currentUserLogin } from '../lib/sessions.js';
 
@@ -51,6 +56,14 @@ async function requireOperator(request: FastifyRequest, reply: FastifyReply): Pr
   return true;
 }
 
+/** A seeker may regrade only their own profile (as a demo identity); operators any profile. */
+async function requireRegrader(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  const identity = await currentDemoIdentity(request);
+  const key = (request.params as { key?: unknown }).key;
+  if (identity?.kind === 'candidate' && identity.key === key) return true;
+  return requireOperator(request, reply);
+}
+
 /** Priorities belong to the posting's employer (as a demo identity) or a demo operator. */
 async function requirePriorityEditor(
   request: FastifyRequest,
@@ -68,7 +81,7 @@ async function requirePriorityEditor(
   return requireOperator(request, reply);
 }
 
-// The list never loads prepared snapshots or resume text.
+// The list never loads resume text.
 const summaryColumns = {
   key: demoCandidates.key,
   name: demoCandidates.name,
@@ -113,16 +126,7 @@ function candidateSummary(row: SummaryRow): DemoCandidateSummary {
 
 async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
   const state = await candidateState(row);
-  const ready = state.input?.kind === 'ready' ? state.input.prepared : null;
   const verification = row.verification as DemoCandidate['verification'];
-  let prepared = ready;
-  if (!prepared) {
-    try {
-      prepared = storedPrepared(row);
-    } catch {
-      prepared = null;
-    }
-  }
   return {
     ...candidateSummary(row),
     verification: {
@@ -132,11 +136,12 @@ async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
       userSuppliedStatus: verification.userSuppliedStatus,
     },
     freshness: state.freshness,
-    transientRepos: ready ? transientRepos(ready) : [],
+    transientRepos: (state.manifest?.repos ?? []).flatMap((r) =>
+      r.unavailable && TRANSIENT.has(r.unavailable) ? [r.repo] : [],
+    ),
     repositories: buildRepositoryBreakdown({
       repositories: row.repositories,
-      prepared,
-      missing: state.input?.kind === 'not_prepared' ? state.input.missing : [],
+      manifest: state.manifest,
       freshness: state.freshness,
       assessment: state.assessment,
     }),
@@ -171,6 +176,8 @@ async function jobDetail(row: JobWithEmployer): Promise<DemoJob> {
   return {
     ...jobSummary(row),
     text: row.job.text,
+    retrievedOn: row.job.retrievedOn,
+    sourceLimitations: row.job.sourceLimitations,
     freshness: state.freshness,
     requirements: (state.assessment?.requirements ?? []).map((r) => {
       const override = overrides.get(r.skillId);
@@ -197,11 +204,15 @@ const KeyParams = z.object({ key: z.string().min(1) });
 const IdParams = z.object({ id: z.string().min(1) });
 const PriorityParams = z.object({ id: z.string().min(1), skillId: SkillIdSchema });
 const MatchQuery = z.object({ candidate: z.string().min(1), job: z.string().min(1) });
-const AnalysisBody = z.object({ retry: z.boolean().optional() }).strict();
+const AnalysisBody = z
+  .object({ retry: z.boolean().optional(), fresh: z.boolean().optional() })
+  .strict();
 const PriorityBody = z.object({ priority: PrioritySchema.nullable() }).strict();
 
 export async function demoRoutes(app: FastifyInstance) {
-  const onError = (err: unknown) => app.log.warn({ err }, 'Demo analysis failed');
+  // Only the safe code: errors from a run can carry request details.
+  const onError = (err: unknown) =>
+    app.log.warn({ code: safeErrorCode(err) }, 'Demo analysis failed');
 
   const started = (reply: FastifyReply, run: Started) => {
     const body: AnalysisStart = { result: run.result };
@@ -258,13 +269,28 @@ export async function demoRoutes(app: FastifyInstance) {
     }
     const run = await startCandidateRun(
       params.data.key,
-      { retry: body.data.retry ?? false },
-      {
-        onError,
-      },
+      { retry: body.data.retry ?? false, fresh: body.data.fresh ?? false },
+      { onError },
     );
     return started(reply, run);
   });
+
+  /** An explicit regrade: always fetches the repositories again and grades them anew. */
+  app.post(
+    '/demo/candidates/:key/rerun',
+    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      if (!(await requireRegrader(request, reply))) return reply;
+      const params = KeyParams.safeParse(request.params);
+      if (!params.success) return send(reply, 400, 'invalid_input', 'Invalid candidate key');
+      const run = await startCandidateRun(
+        params.data.key,
+        { retry: true, fresh: true },
+        { onError },
+      );
+      return started(reply, run);
+    },
+  );
 
   app.post('/demo/jobs/:id/analysis', async (request, reply) => {
     if (!(await requireOperator(request, reply))) return reply;
@@ -273,7 +299,11 @@ export async function demoRoutes(app: FastifyInstance) {
     if (!params.success || !body.success) {
       return send(reply, 400, 'invalid_input', 'Invalid analysis request');
     }
-    const run = await startJobRun(params.data.id, { retry: body.data.retry ?? false }, { onError });
+    const run = await startJobRun(
+      params.data.id,
+      { retry: body.data.retry ?? false, fresh: body.data.fresh ?? false },
+      { onError },
+    );
     return started(reply, run);
   });
 

@@ -110,17 +110,22 @@ export const getDemoMatch = (candidate: string, job: string): Promise<DemoMatch>
     DemoMatchSchema,
   );
 
-export const startCandidateAnalysis = (key: string, retry: boolean): Promise<AnalysisStart> =>
+/** `regrade` runs a fresh analysis even when a saved result for the same inputs exists. */
+export const startCandidateAnalysis = (key: string, regrade: boolean): Promise<AnalysisStart> =>
   request(`/demo/candidates/${segment(key)}/analysis`, AnalysisStartSchema, {
     method: 'POST',
-    body: { retry },
+    body: { retry: regrade, fresh: regrade },
   });
 
-export const startJobAnalysis = (id: string, retry: boolean): Promise<AnalysisStart> =>
+export const startJobAnalysis = (id: string, regrade: boolean): Promise<AnalysisStart> =>
   request(`/demo/jobs/${segment(id)}/analysis`, AnalysisStartSchema, {
     method: 'POST',
-    body: { retry },
+    body: { retry: regrade, fresh: regrade },
   });
+
+/** A seeker's own explicit regrade: fetches the repositories again and grades them anew. */
+export const regradeCandidate = (key: string): Promise<AnalysisStart> =>
+  request(`/demo/candidates/${segment(key)}/rerun`, AnalysisStartSchema, { method: 'POST' });
 
 /** `null` resets the requirement to its suggested priority. */
 export const setJobPriority = (id: string, skillId: string, priority: number | null) =>

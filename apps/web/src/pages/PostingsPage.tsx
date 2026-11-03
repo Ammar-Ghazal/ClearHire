@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useChosenIdentity } from '../identity';
 import { freshnessLabel } from '../status';
-import { ErrorNote, Loading, MatchList, Page, Panel, useAction, useLoad } from '../ui';
+import { ErrorNote, Loading, MatchList, Page, Panel, PostingText, useAction, useLoad } from '../ui';
 
 export function PostingsPage() {
   const { identity } = useChosenIdentity();
@@ -169,8 +169,8 @@ export function PostingPage() {
         )}
       </Panel>
 
-      <Panel title="Posting text">
-        <p className="text-sm whitespace-pre-wrap text-slate-700">{posting.text}</p>
+      <Panel title="Posting">
+        <PostingText posting={posting} />
       </Panel>
     </Page>
   );

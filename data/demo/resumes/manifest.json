@@ -21,56 +21,29 @@
         "Reconstructed from a published HTML resume; not a candidate-submitted application.",
         "Project listings and technology claims have not been assessed for individual competency."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "Open-source developer whose published resume describes full-time community-supported work since 2018.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Community-supported open-source developer focused on macOS applications, Node.js libraries and developer tools. Public resume states full-time open-source work since 2018.",
+        "experience": [
+          [
+            "Open-source software | Independent | 2014-present",
+            "Left office work in 2014 to travel while building open-source software; later based in Bangkok. Community funding supports full-time open-source work since early 2018."
           ]
-        },
-        {
-          "heading": "Selected projects",
-          "items": [
-            {
-              "text": "Dato: macOS menu-bar clock with calendar and time-zone features.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            },
-            {
-              "text": "Shareful: additional macOS sharing actions; Lungo: a utility to keep a Mac awake.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            },
-            {
-              "text": "Kap: collaborative open-source macOS screen recording application.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            },
-            {
-              "text": "Got: Node.js HTTP library; XO: JavaScript linting; Pageres: website screenshot tooling.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            },
-            {
-              "text": "Pure: Zsh prompt; Chalk: terminal styling; AVA: Node.js testing.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            }
-          ]
-        },
-        {
-          "heading": "Self-reported technologies",
-          "items": [
-            {
-              "text": "Swift, Node.js, JavaScript, macOS applications and command-line interfaces.",
-              "source_url": "https://standardresume.co/r/sindre-sorhus"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Dato: macOS menu bar calendar and multi-time-zone clock.",
+          "Kap: collaborative open-source screen recorder with plugins, trimming and window capture.",
+          "Shareful: additional macOS sharing actions; Lungo: prevent sleep and display dimming.",
+          "Got: Node.js HTTP client; XO: JavaScript linting; AVA: Node.js test runner; Pageres: website screenshot tool.",
+          "Pure, Chalk and Awesome lists for shell, terminal styling and curated developer resources.",
+          "Awesome, Awesome Node.js and Awesome Electron: curated collections of development resources."
+        ],
+        "skills": "Swift; Node.js; JavaScript; macOS apps; command-line tools."
+      },
       "file": "data/demo/resumes/sindresorhus.pdf",
-      "sha256": "e027f9357508e6e48146ba6302b4ee9c6315d08611d1e330e62b11d708bbd359",
+      "sha256": "a33625dc94bcbafa4007fae8ce18b77dce77caa29435eae7b6e75156ac745194",
       "pages": 1,
-      "text_characters": 1132,
+      "text_characters": 1599,
       "github_url": "https://github.com/sindresorhus",
       "original_resume_source_url": "https://standardresume.co/r/sindre-sorhus",
       "limited_source": false,
@@ -88,56 +61,68 @@
         "Experience dates and responsibilities are self-reported on the personal website.",
         "No proficiency level or current job preference inferred."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "AI researcher and educator with work in neural networks, computer vision and language models.",
-              "source_url": "https://karpathy.ai/"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "AI researcher and educator working across neural networks, computer vision, language models, model training and research systems.",
+        "experience": [
+          [
+            "OpenAI | 2023-2024",
+            "Built a team focused on midtraining and synthetic data generation."
+          ],
+          [
+            "Tesla | Director of AI | 2017-2022",
+            "Led the Autopilot computer vision team; work covered data labeling, neural-network training and deployment on Tesla inference hardware."
+          ],
+          [
+            "OpenAI | Research Scientist, Founding Member | 2015-2017",
+            "Research role at the organization’s founding stage."
+          ],
+          [
+            "Stanford Vision Lab | PhD research | 2011-2015",
+            "Research on convolutional and recurrent neural networks for computer vision and language; advisor Fei-Fei Li."
+          ],
+          [
+            "Teaching and education | 2015-present",
+            "Designed and primarily taught Stanford CS231n; publishes technical and general-audience AI education videos since 2024."
+          ],
+          [
+            "Google Brain / Google Research | Research Intern | 2011 and 2013",
+            "Studied unsupervised learning from video in 2011 and large-scale supervised learning on YouTube videos in 2013."
+          ],
+          [
+            "DeepMind | Research Intern | 2015",
+            "Worked with the deep reinforcement learning team."
           ]
-        },
-        {
-          "heading": "Experience",
-          "items": [
-            {
-              "text": "OpenAI, 2023–2024: describes building a team focused on midtraining and synthetic data.",
-              "source_url": "https://karpathy.ai/"
-            },
-            {
-              "text": "Tesla, 2017–2022: Director of AI leading Autopilot computer vision work, including labeling, neural-network training and deployment.",
-              "source_url": "https://karpathy.ai/"
-            },
-            {
-              "text": "OpenAI, 2015–2017: research scientist and founding member.",
-              "source_url": "https://karpathy.ai/"
-            },
-            {
-              "text": "Since 2024: publishes AI education videos, including technical and general-audience tracks.",
-              "source_url": "https://karpathy.ai/"
-            }
-          ]
-        },
-        {
-          "heading": "Research and teaching",
-          "items": [
-            {
-              "text": "Doctoral research, 2011–2015: convolutional and recurrent networks for vision and language at Stanford, advised by Fei-Fei Li.",
-              "source_url": "https://karpathy.ai/"
-            },
-            {
-              "text": "Designed and taught Stanford CS231n, focused on convolutional networks for visual recognition.",
-              "source_url": "https://karpathy.ai/"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Tesla Autopilot computer vision and model deployment.",
+          "CS231n: convolutional neural networks for visual recognition course, lectures and notes.",
+          "AI education: Zero to Hero, Deep Dive into LLMs, and introductory LLM material.",
+          "micrograd: scalar-valued automatic differentiation engine implementing backpropagation over a dynamic computation graph, with a small neural network library.",
+          "char-rnn: character-level language model using LSTMs, GRUs and RNNs; neuraltalk2: image captioning in Torch and subsequent dense-captioning work.",
+          "arxiv-sanity and arxiv-sanity-lite: research paper discovery, similarity sorting and recommendations; related projects include biomed-sanity and research lei.",
+          "ConvNetJS: JavaScript library for browser-based deep learning; follow-on experiments include tSNEJS, REINFORCEjs, recurrentjs and GANs in JavaScript.",
+          "ulogme: privacy-first local productivity and computer-use tracker."
+        ],
+        "education": [
+          "PhD research, Stanford University, 2011-2015 (degree title not inferred beyond source wording).",
+          "MSc, University of British Columbia, 2009-2011; learning controllers for physically simulated figures.",
+          "BSc, University of Toronto, 2005-2009; Computer Science and Physics double major, Mathematics minor."
+        ],
+        "skills": "Deep learning; neural networks; computer vision; natural language processing; model training; synthetic data; research education. No proficiency levels inferred.",
+        "research": [
+          "World of Bits: An Open-Domain Platform for Web-Based Agents, ICML 2017; PixelCNN++, ICLR 2017.",
+          "Connecting Images and Natural Language, doctoral thesis, 2016; DenseCap: Fully Convolutional Localization Networks for Dense Captioning, CVPR 2016 oral.",
+          "Visualizing and Understanding Recurrent Networks, ICLR Workshop 2016; Deep Visual-Semantic Alignments for Generating Image Descriptions, CVPR 2015 oral.",
+          "ImageNet Large Scale Visual Recognition Challenge, IJCV 2015; Deep Fragment Embeddings for Bidirectional Image-Sentence Mapping, NIPS 2014.",
+          "Large-Scale Video Classification with Convolutional Neural Networks, CVPR 2014 oral; Grounded Compositional Semantics for Finding and Describing Images with Sentences, TACL 2013.",
+          "Object Discovery in 3D Scenes via Shape Analysis, ICRA 2013; Emergence of Object-Selective Features in Unsupervised Feature Learning, NIPS 2012."
+        ]
+      },
       "file": "data/demo/resumes/karpathy.pdf",
-      "sha256": "623ecafe26831cf75a2bd39ac4c90644a88c676a25f606fa95b82e6abbed615b",
-      "pages": 1,
-      "text_characters": 1202,
+      "sha256": "d99523c1974e9d38cb327bcc7ab4417ac1b57c3c0efe2d321d99ee22bdc4b3ee",
+      "pages": 2,
+      "text_characters": 4016,
       "github_url": "https://github.com/karpathy",
       "original_resume_source_url": "https://karpathy.ai",
       "limited_source": false,
@@ -155,52 +140,29 @@
         "Public sources use different role labels without dates; neither is asserted as the current role.",
         "Reconstructed public-source resume; dates, degree and individual contribution levels omitted."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "Public profile describes work in large-scale systems, data and open-source software.",
-              "source_url": "https://donnemartin.com/"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Engineering manager and open-source developer whose public pages describe large-scale systems, data and software engineering. Dates and education were not supplied.",
+        "experience": [
+          [
+            "Facebook | Engineering Manager, Public Safety Engineering",
+            "Personal site describes supporting the Public Safety Engineering team; a GitHub bio separately identifies a Tech Lead association. The source pages do not establish dates or reconcile these titles."
           ]
-        },
-        {
-          "heading": "Experience",
-          "items": [
-            {
-              "text": "Personal site lists an Engineering Manager role at Facebook supporting Public Safety Engineering; dates are not provided.",
-              "source_url": "https://donnemartin.com/"
-            },
-            {
-              "text": "GitHub bio separately identifies a Tech Lead association with Facebook.",
-              "source_url": "https://github.com/donnemartin"
-            }
-          ]
-        },
-        {
-          "heading": "Selected projects",
-          "items": [
-            {
-              "text": "System Design Primer: educational resources for large-scale system design.",
-              "source_url": "https://donnemartin.com/"
-            },
-            {
-              "text": "Interactive Python coding challenges and data-science notebooks.",
-              "source_url": "https://donnemartin.com/"
-            },
-            {
-              "text": "Gitsome: Git/GitHub command-line tooling; AWS Shell and SAWS: AWS command-line tools.",
-              "source_url": "https://donnemartin.com/"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "System Design Primer: educational guide to large-scale system design.",
+          "Interactive Python coding challenges and data-science notebooks.",
+          "Gitsome: Git and GitHub CLI tooling; AWS Shell and SAWS: AWS CLI tools.",
+          "Developer setup resources, visualizations and curated AWS guides.",
+          "Haxor News: Hacker News client; Dev Setup: macOS development environment guide; Viz: popular repository visualization.",
+          "Awesome AWS and Open Guide to AWS: curated cloud resources."
+        ],
+        "skills": "Python; data science; large-scale system design; Git/GitHub tooling; AWS tools (as shown by public projects; proficiency not assessed)."
+      },
       "file": "data/demo/resumes/donnemartin.pdf",
-      "sha256": "31d2886ebf72fae3b8de7812fb14519d911ac7acb24bbd70723c69a43b1ca2e3",
+      "sha256": "e3cb26d2dc6229a11a128e6140786703a63c5c4bd381e622589c1c6d132e4cb5",
       "pages": 1,
-      "text_characters": 1071,
+      "text_characters": 1629,
       "github_url": "https://github.com/donnemartin",
       "original_resume_source_url": "https://www.linkedin.com/in/donnemartin/",
       "limited_source": false,
@@ -218,56 +180,46 @@
         "The personal site directly links to github.com/nilbuild.",
         "Responsibilities are self-reported; no role suitability or personal code attribution inferred."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "Describes hands-on product and engineering leadership spanning product definition, design, implementation, deployment and team leadership.",
-              "source_url": "https://kamran.fyi/"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Product and engineering leader spanning product definition, design, implementation, deployment and team leadership.",
+        "experience": [
+          [
+            "Insight Media Group | Product and Engineering leadership | 2022-present",
+            "Leads product and engineering across roadmap.sh, The New Stack and Towards Data Science; joined after Insight Partners acquired roadmap.sh in 2022 and expanded remit in 2026."
+          ],
+          [
+            "Almosafer | Engineering Lead | 2015-2019",
+            "Founding hire; built platform services, later moved to Berlin to build a team. Portfolio reports growth from 20 to 1,000 people and 0 to 40,000 orders/day."
+          ],
+          [
+            "Tradeling | Engineering Manager | 2019-2021",
+            "Employee number three; helped launch a B2B commerce platform in three months. Portfolio reports over one million products, 250 people and 100x conversion."
+          ],
+          [
+            "Zalando and Al Tayer Group | Engineering roles | Dates not stated",
+            "Earlier roles listed on personal site; titles and dates not provided."
           ]
-        },
-        {
-          "heading": "Experience",
-          "items": [
-            {
-              "text": "Insight Media Group: leads product and engineering across roadmap.sh, The New Stack and Towards Data Science; joined following the 2022 roadmap.sh acquisition.",
-              "source_url": "https://kamran.fyi/"
-            },
-            {
-              "text": "Almosafer, 2015–2019: Engineering Lead and founding engineering work on platform services and team development.",
-              "source_url": "https://kamran.fyi/"
-            },
-            {
-              "text": "Tradeling, 2019–2021: Engineering Manager and founding engineering work on a B2B commerce platform.",
-              "source_url": "https://kamran.fyi/"
-            },
-            {
-              "text": "Earlier engineering roles listed at Zalando and Al Tayer Group; dates not supplied.",
-              "source_url": "https://kamran.fyi/"
-            }
-          ]
-        },
-        {
-          "heading": "Selected projects",
-          "items": [
-            {
-              "text": "roadmap.sh: developer learning paths; driver.js: browser-based product tours and onboarding.",
-              "source_url": "https://kamran.fyi/"
-            },
-            {
-              "text": "Other listed products include desktop database tools, mind mapping and developer utilities.",
-              "source_url": "https://kamran.fyi/"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "roadmap.sh: developer learning paths and AI generator; portfolio reports 369K GitHub stars, 3M registered users and 9M monthly views.",
+          "driver.js: vanilla JavaScript product tours and onboarding; portfolio reports 27K GitHub stars and 2M weekly downloads.",
+          "koboyo: canvas for brainstorming, diagrams and slides; time.fyi: time zone converter, timers and daily planner.",
+          "tablething: cross-platform desktop database application; notemap: native macOS mind-mapping app; slasha: self-hosting from a single binary.",
+          "alwaysontop: macOS floating window utility; slim.sh: HTTPS domains and tunnels for localhost; diffity: macOS code review app.",
+          "page-mascot: React cursor-following mascot; streamif: macOS live-streaming app; timdo: React Native iOS expense tracker; claude-run: web UI for Claude Code history.",
+          "Web experiments include Slingshot Lamp, Paper Plane, Thermal, Bubbles and Dithered Day."
+        ],
+        "skills": "Product and engineering leadership; product design; JavaScript; developer products; platform services; team building. Portfolio claims retained as claims.",
+        "achievements": [
+          "Recognized as a Google Developer Expert and GitHub Star; portfolio reports 250K YouTube subscribers and second place globally by GitHub stars.",
+          "Writing includes engineering articles on Cloudflare redirects, AWS EC2, AWS VPC, and dynamic Ansible inventory."
+        ]
+      },
       "file": "data/demo/resumes/nilbuild.pdf",
-      "sha256": "494d9128a9c9a34057b2d41ab4c6ec251cd719128a293f5c0b55cbacbab85c9e",
+      "sha256": "c6539214a865d58ef2bb981f957ebddd5591697ecaa8edfda1225008f4628f3a",
       "pages": 1,
-      "text_characters": 1300,
+      "text_characters": 2823,
       "github_url": "https://github.com/nilbuild",
       "original_resume_source_url": "https://kamran.fyi",
       "limited_source": false,
@@ -286,48 +238,33 @@
         "Lab project capabilities must not be credited to Chao Huang without contribution evidence.",
         "Reconstructed academic profile; no degrees or dates invented."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "Assistant Professor and doctoral advisor in Computer Science and the Institute of Data Science at the University of Hong Kong.",
-              "source_url": "https://sites.google.com/view/chaoh"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Academic profile: Assistant Professor and PhD advisor in Computer Science and the Institute of Data Science at the University of Hong Kong; director of Data Intelligence Lab.",
+        "experience": [
+          [
+            "University of Hong Kong | Assistant Professor and PhD Advisor | Dates not stated",
+            "Department of Computer Science and Institute of Data Science; directs the Data Intelligence Lab."
           ]
-        },
-        {
-          "heading": "Research experience",
-          "items": [
-            {
-              "text": "Directs the Data Intelligence Lab at HKU.",
-              "source_url": "https://sites.google.com/view/chaoh"
-            },
-            {
-              "text": "Listed research areas include large language models, autonomous agents, graph learning, recommender systems and AI for smart cities.",
-              "source_url": "https://sites.google.com/view/chaoh"
-            }
-          ]
-        },
-        {
-          "heading": "Selected lab research",
-          "items": [
-            {
-              "text": "Lab projects include LightRAG and RAG-Anything for retrieval-augmented generation, and GraphGPT for graph modeling.",
-              "source_url": "https://sites.google.com/view/chaoh"
-            },
-            {
-              "text": "The website also lists AI-research and agent-oriented projects developed by the lab.",
-              "source_url": "https://sites.google.com/view/chaoh"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Lab research, LLMs and agents: nanobot, CLI-Anything, DeepTutor, DeepCode, AI-Trader, OpenSpace, AI-Researcher, ClawTeam and ViMax.",
+          "Lab research, retrieval-augmented generation: LightRAG, RAG-Anything, VideoRAG and MiniRAG.",
+          "Lab research, graph foundation models: GraphGPT, HiGPT, OpenGraph and AnyGraph.",
+          "Lab research, recommendation systems: RLMRec, LLMRec, XRec, EasyRec and RecLM; smart cities: UrbanGPT and OpenCity.",
+          "All projects are described as Data Intelligence Lab projects; individual code contribution is not asserted."
+        ],
+        "achievements": [
+          "Profile lists AI 100 Young Pioneers (2025), AI 2000 Most Influential Scholars (2025), WAIC Youth Outstanding Paper Honorable Mention (2025), WAIC Bright Stars (2024) and ICBS Frontiers of Science Award (2024).",
+          "Profile lists Stanford World Top 2% Scientists for 2022-2025; research recognition includes an ACM MM 2024 Best Paper Honorable Mention and WSDM 2022 / WWW 2019 best-paper nominations.",
+          "Profile reports highly cited papers across WWW, SIGIR, KDD, CIKM, AAAI, ICDE and WSDM. Rankings refer to the source profile and have not been independently verified."
+        ],
+        "skills": "Research areas: LLMs, autonomous agents, graph learning, recommender systems and AI for smart cities. HKUDS is a lab organization; repositories are not attributed to the individual."
+      },
       "file": "data/demo/resumes/HKUDS.pdf",
-      "sha256": "9f7ea58770b3e6eb49485c1c16e35df5b7cba409da299e64a585bdc03c4adc53",
+      "sha256": "8c83cf3b9301f734c219414c331a53c7aa5e9d9dc20b6ab9fe72d1ec07e880d0",
       "pages": 1,
-      "text_characters": 1122,
+      "text_characters": 2349,
       "github_url": "https://github.com/HKUDS",
       "original_resume_source_url": "https://sites.google.com/view/chaoh",
       "limited_source": false,
@@ -339,42 +276,39 @@
       "kind": "reconstructed_demo_resume",
       "sources": [
         "https://github.com/jwasham",
-        "https://github.com/jwasham/coding-interview-university"
+        "https://github.com/jwasham/coding-interview-university",
+        "https://startupnextdoor.com/about/"
       ],
       "limitations": [
         "Employment is a public self-report and is not independently verified as current.",
         "Project descriptions are not proof of mastery of every listed topic.",
         "Education credentials, employment dates and additional roles were not available from inspected sources."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "GitHub bio lists Software Development Engineer at Amazon; employment dates are not supplied.",
-              "source_url": "https://github.com/jwasham"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Software engineer, entrepreneur and computer science educator. Public sources identify Amazon software engineering work and creator of a widely used open study curriculum.",
+        "experience": [
+          [
+            "Amazon | Software Development Engineer | Current title shown on public GitHub profile",
+            "Public GitHub profile lists this role; dates and responsibilities are not stated."
+          ],
+          [
+            "TalkToTheManager and zKorean | Founder / creator | Dates not stated",
+            "Personal site describes founding TalkToTheManager and creating zKorean, following earlier web business projects."
           ]
-        },
-        {
-          "heading": "Selected project",
-          "items": [
-            {
-              "text": "Coding Interview University: public computer-science study material covering data structures, algorithms and software-engineering interview preparation.",
-              "source_url": "https://github.com/jwasham/coding-interview-university"
-            },
-            {
-              "text": "The project introduction describes a personal study process leading to a software-development role at Amazon.",
-              "source_url": "https://github.com/jwasham/coding-interview-university"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Coding Interview University: open study plan for software engineering and computer science interview preparation; GitHub page shows a large community of users and contributors.",
+          "Assembly and C study repositories; computer science flash cards and practice resources.",
+          "Computer Science Flash Cards: web-based practice and memorization for computer science concepts, algorithms and data structures.",
+          "Assembly-and-C and practice-c: public low-level programming study repositories."
+        ],
+        "skills": "Software engineering; computer science education; C; assembly; web business. Skill level is not inferred."
+      },
       "file": "data/demo/resumes/jwasham.pdf",
-      "sha256": "6fab2e8a555f1dce2a427c797dec431907fdf9d42fecf57aeee36400e5fa242a",
+      "sha256": "e4bb5eac82ffe35ff6f11c67ffcb65bad08d7388611da5c79d1d083508f5d857",
       "pages": 1,
-      "text_characters": 982,
+      "text_characters": 1995,
       "github_url": "https://github.com/jwasham",
       "original_resume_source_url": "https://www.linkedin.com/in/johnawasham/",
       "limited_source": false,
@@ -393,31 +327,19 @@
         "GitHub profile could not be retrieved during research; the supplied identity association is unverified.",
         "Do not treat missing fields as evidence of low competency."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Education",
-          "items": [
-            {
-              "text": "Publicly indexed LinkedIn profile lists Specialized Institute of Applied Technology attendance, 2018–2020. The program and degree are not visible.",
-              "source_url": "https://ma.linkedin.com/in/anas-zahou-3b4005199"
-            }
-          ]
-        },
-        {
-          "heading": "Portfolio",
-          "items": [
-            {
-              "text": "The demo source record associates this name with GitHub account Skeurz; that identity pairing remains unverified.",
-              "source_url": "https://github.com/Skeurz"
-            }
-          ]
-        }
-      ],
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Public portfolio evidence is limited. The GitHub account identifies Anas Zahou and lists two small repositories; no detailed employment history, education, dates, or accomplishments could be verified from the available public sources.",
+        "projects": [
+          "Front_AlloArtisan: public repository exists; detailed individual contribution and project outcomes are not established by the accessible profile.",
+          "Back_AlloArtisan: public repository exists; detailed individual contribution and project outcomes are not established by the accessible profile."
+        ],
+        "skills": "Repository language tags include TypeScript and Java; listing alone does not establish proficiency."
+      },
       "file": "data/demo/resumes/Skeurz.pdf",
-      "sha256": "b61c42923b222cb40cbb8386986b75c56b28d98d4068f619bc6771bdad61f9c4",
+      "sha256": "20dc106f972fd75da6791c2d39bfe2ed43f63225a57805113059105a2a4e5af8",
       "pages": 1,
-      "text_characters": 872,
+      "text_characters": 1290,
       "github_url": "https://github.com/Skeurz",
       "original_resume_source_url": "https://www.linkedin.com/in/anas-zahou-3b4005199/",
       "limited_source": true,
@@ -436,40 +358,33 @@
         "GitHub profile could not be retrieved during research.",
         "No employer role title, degree title or individual contribution claims have been invented."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional profile",
-          "items": [
-            {
-              "text": "Publicly indexed LinkedIn profile describes experience in eCommerce and lists an association with RIMOWA. The job title and dates are not visible.",
-              "source_url": "https://fr.linkedin.com/in/ruben-edery"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Software engineer with public LinkedIn and GitHub pages. Available public material identifies Paris area, an engineering degree institution, and French, English and Spanish language information; detailed career history is restricted.",
+        "experience": [
+          [
+            "RIMOWA | Role and dates not publicly visible",
+            "Public LinkedIn profile lists the organization; role and dates are hidden. A public recommendation describes Salesforce Commerce Cloud e-commerce implementation work in an LVMH group team, but it does not establish exact role dates."
           ]
-        },
-        {
-          "heading": "Education",
-          "items": [
-            {
-              "text": "Lists ESIPE, École Supérieure d’Ingénieurs Paris-Est Créteil, from 2013–2018; no degree title is inferred.",
-              "source_url": "https://fr.linkedin.com/in/ruben-edery"
-            }
-          ]
-        },
-        {
-          "heading": "Professional development",
-          "items": [
-            {
-              "text": "Lists a December 2020 B2C Commerce Developer with SFRA examination result.",
-              "source_url": "https://fr.linkedin.com/in/ruben-edery"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "OtherMoments: a public LinkedIn post says he developed an event-photo product using event-specific QR codes so guests can share photos and videos immediately.",
+          "GitHub public repositories include engineering coursework and small web projects; repository presence does not establish production experience."
+        ],
+        "education": [
+          "Ecole Superieure d’Ingenieurs Paris-Est Creteil (ESIPE) is listed; degree and dates are not publicly visible.",
+          "General baccalaureate, economics and social sciences, awarded with mention assez bien, June 2012."
+        ],
+        "skills": "French (bilingual/native-level as listed); English (general professional proficiency as listed); Spanish (listed without level). Technical proficiency is not established by limited public profile.",
+        "achievements": [
+          "B2C Commerce Developer with SFRA, CCD 102 course / exam: passed, December 2020 (as listed on LinkedIn).",
+          "TOEIC: 830/990, December 2018."
+        ]
+      },
       "file": "data/demo/resumes/rubenedery.pdf",
-      "sha256": "ecc81c3095eaa23aea87e55022e4895ce6d10da597af96c263fe67a8de0ba873",
+      "sha256": "497d0cc60149448184ec08bd6da7180456318528ea5c937c036dc26b64898672",
       "pages": 1,
-      "text_characters": 992,
+      "text_characters": 2130,
       "github_url": "https://github.com/rubenedery",
       "original_resume_source_url": "https://www.linkedin.com/in/ruben-edery/",
       "limited_source": true,
@@ -507,56 +422,48 @@
         "Reconstructed from a self-published CV; the page includes inconsistent present-tense PhD wording, so education dates follow its education section.",
         "Experience and impact claims remain self-reported."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional summary",
-          "items": [
-            {
-              "text": "Web platform specialist working across API design, CSS standards, developer tools, usability and teaching.",
-              "source_url": "https://cv.verou.me/"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Web standards designer, software engineer, educator and researcher focused on CSS, browser APIs, human-computer interaction and end-user programming.",
+        "experience": [
+          [
+            "W3C Technical Architecture Group | Elected member | 2021-present",
+            "Reports 100+ design reviews, a fast-track review process reducing response time by 88%, and work on Web Platform Design Principles."
+          ],
+          [
+            "W3C CSS Working Group | Invited Expert | 2012-present",
+            "Proposed and advanced CSS features including conic gradients, :where(), relative colors, CSS Nesting and wide-gamut color."
+          ],
+          [
+            "Lea Verou Consulting | Founder | 2011-present",
+            "Consulting in speaking, writing, standards, usability and product work; listed clients include Google, Stripe, O’Reilly Media, Wix, Mozilla and McKinsey."
+          ],
+          [
+            "Fresset Ltd | Co-founder and CEO | 2005-2011",
+            "Built online communities; public CV reports e-steki.gr at 80K users, MyCat.gr, acquisitions, media partnership and teams of developers, designers and moderators."
+          ],
+          [
+            "MIT | Research Assistant, instructor and teaching assistant | 2014-2024",
+            "Research on lowering barriers to web programming; designed Mavo and Lifesheets. Taught web design and UI courses; supervised undergraduate and graduate students."
           ]
-        },
-        {
-          "heading": "Experience",
-          "items": [
-            {
-              "text": "W3C Technical Architecture Group — elected member, listed from 2021. Conducts web-platform design reviews and contributes to design principles.",
-              "source_url": "https://cv.verou.me/"
-            },
-            {
-              "text": "CSS Working Group — Invited Expert, listed from 2012. Contributions include CSS features, color capabilities and nesting syntax.",
-              "source_url": "https://cv.verou.me/"
-            },
-            {
-              "text": "Lea Verou Consulting — founder, listed from 2011. Clients named in the CV include Google, Stripe and Mozilla.",
-              "source_url": "https://cv.verou.me/"
-            },
-            {
-              "text": "MIT — Research Assistant, 2014–2024, excluding teaching appointments. Developed tools intended to make web applications easier to author, including Mavo.",
-              "source_url": "https://cv.verou.me/"
-            },
-            {
-              "text": "MIT — instructor appointments in 2018, 2020, 2022 and 2023; teaching assistant for an interactive visualization course in 2024.",
-              "source_url": "https://cv.verou.me/"
-            }
-          ]
-        },
-        {
-          "heading": "Education",
-          "items": [
-            {
-              "text": "PhD in Computer Science, MIT, 2024; MSc in Computer Science, MIT, 2017; BSc in Computer Science, Athens University of Economics and Business, 2013.",
-              "source_url": "https://cv.verou.me/"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Color.js: color science library; public CV reports over 2.5M npm downloads.",
+          "Mavo: HTML-based environment for interactive data-driven applications; associated with MIT research and peer-reviewed studies.",
+          "Prism, Awesomplete, Dabblet, contrast-ratio.com, CSS3 Test, cubic-bezier.com and CSS3 Patterns Gallery.",
+          "CSS Secrets (O’Reilly, 2015), translated into eight languages."
+        ],
+        "education": [
+          "PhD, Computer Science, MIT, 2024; Human-Computer Interaction, minor in Entrepreneurship and Innovation.",
+          "MSc, Computer Science, MIT, 2017; thesis on interactive data-driven web applications.",
+          "BSc, Computer Science, Athens University of Economics and Business, 2013."
+        ],
+        "skills": "CSS; JavaScript; HTML; DOM and Web APIs; accessibility; API and product design; web standards; HCI; teaching and technical writing."
+      },
       "file": "data/demo/resumes/LeaVerou.pdf",
-      "sha256": "308f38dfe0877370c62c676c523cdce89aaa92d1d000f78137a0c68d2e0cd337",
-      "pages": 1,
-      "text_characters": 1444,
+      "sha256": "a388c21d3ce2fac9cc3227062e08a234add0300d404d83f8b11aa0bb9db4000b",
+      "pages": 2,
+      "text_characters": 8210,
       "github_url": "https://github.com/LeaVerou",
       "original_resume_source_url": "https://cv.verou.me/",
       "limited_source": false,
@@ -672,67 +579,40 @@
       "name": "Subhan Nadeem",
       "kind": "reconstructed_demo_resume",
       "sources": [
-        "https://subhan-portfolio-navy.vercel.app/"
+        "https://subhan-portfolio-navy.vercel.app/",
+        "https://subhan-portfolio-navy.vercel.app/resume"
       ],
       "limitations": [
         "Reconstructed from portfolio claims. Project lead labels do not independently verify contribution ownership.",
         "No employment dates or graduation date were inferred."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Professional summary",
-          "items": [
-            {
-              "text": "Full-stack developer focused on web applications using Next.js, React, Node.js and PostgreSQL, as described on the portfolio.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Full-stack developer and Computer Science student focused on modern web applications, accessible interfaces, practical architecture and production-style integrations.",
+        "experience": [
+          [
+            "Independent projects | Full-stack Developer | 2024-present",
+            "Built portfolio, e-commerce, job-tracking and club applications using Next.js, React and PostgreSQL-backed data models; implemented authentication, route protection, API integrations and deployment workflows."
           ]
-        },
-        {
-          "heading": "Selected projects",
-          "items": [
-            {
-              "text": "RE's Hardware Store — e-commerce project with catalog filtering, stock display, checkout and Stripe webhook integration. Listed stack includes Next.js, PostgreSQL and Prisma.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            },
-            {
-              "text": "HQCC — Hofstra Quantum Computing Club platform for membership onboarding, events, board roles and content management using Next.js, React and Firebase.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            },
-            {
-              "text": "HireFlow — job-tracking application with user/employer dashboards, saved jobs, authentication and PostgreSQL-backed data modeling.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            },
-            {
-              "text": "Movie Explorer — React application emphasizing semantic HTML, metadata and accessible interfaces.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            }
-          ]
-        },
-        {
-          "heading": "Education",
-          "items": [
-            {
-              "text": "Computer Science student at Hofstra University, according to the portfolio.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            }
-          ]
-        },
-        {
-          "heading": "Technical background",
-          "items": [
-            {
-              "text": "Self-listed tools include Tailwind CSS, Prisma, NextAuth, Supabase, REST APIs, Vercel and Git.",
-              "source_url": "https://subhan-portfolio-navy.vercel.app/"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "RE Hardware Store | Lead developer: catalog search, inventory filtering, promotions and checkout; Stripe webhooks synchronize the admin dashboard. Next.js, PostgreSQL, Prisma.",
+          "Hofstra Quantum Computing Club | Lead developer: member onboarding, event listings, board roles and content management. Next.js, React and Firebase.",
+          "HireFlow | Lead developer: AI-assisted job tracker with role-based candidate and employer dashboards, saved jobs, applications, authentication and PostgreSQL data models. Next.js, Neon and Prisma.",
+          "Movie Explorer | Lead developer: accessible React movie browser emphasizing semantic HTML, metadata, SEO and future SSR migration. React Router."
+        ],
+        "education": [
+          "B.S. Computer Science, Hofstra University | Current student; dates not supplied."
+        ],
+        "skills": "JavaScript; SQL; HTML; CSS; Next.js; React; Node.js; Express; Tailwind CSS; PostgreSQL; Prisma; Firebase; Firestore; Git; Vercel; Stripe; NextAuth; Framer Motion.",
+        "achievements": [
+          "Published technical writing on PostgreSQL and Prisma schema modeling, migrations and Neon; and on authentication choices in Next.js."
+        ]
+      },
       "file": "data/demo/resumes/Subhan2117.pdf",
-      "sha256": "7b6ee53c608bde2125373d6e55214d65d89c25c9d9643103e8a9aefad50fdaf6",
+      "sha256": "05d101d1873a60c3c4d214a01d324402dbb59507b532d377613111cf82edbadc",
       "pages": 1,
-      "text_characters": 1397,
+      "text_characters": 2223,
       "github_url": "https://github.com/Subhan2117",
       "original_resume_source_url": "https://subhan-portfolio-navy.vercel.app/",
       "limited_source": false,
@@ -769,52 +649,48 @@
       ],
       "limitations": [
         "English paraphrase of a Korean-language self-published resume.",
-        "The English display name follows the saved ClearHire profile; source identifies the person as 장수빈.",
+        "The English name follows the saved ClearHire profile; the source resume is in Korean.",
         "Reported results and employment have not been independently verified."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Profile",
-          "items": [
-            {
-              "text": "Frontend developer whose Korean-language resume describes work on reservation, payment, POS and kiosk applications, including state management, caching and synchronization.",
-              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Frontend engineer whose Korean-language self-published resume describes five years of work in reservation, payment, POS and kiosk systems. English paraphrase; reported results remain self-reported.",
+        "experience": [
+          [
+            "Alssolution Co. | Senior Frontend Developer | Mar 2025-present",
+            "Established frontend conventions, shared API and ESLint packages and four design-system lines across five projects; standardized Jenkins and AWS CodeArtifact CI/CD. Source reports 60% faster builds/deployments and onboarding setup reduced from one day to under one hour.",
+            "Designed a reusable Bootstrap/CSS variable token system with independent package versions and light/dark themes; reports 30% less UI development time and 50% less duplicate styling.",
+            "Built internal back office across five operating domains in six weeks; progressively migrated about 40 components to Ant Design in four weeks with zero reported screen regressions.",
+            "Rebuilt PharmBridge pharmacy frontend alongside the JSP-to-Spring backend migration using vanilla JS and SSR; later introduced React islands, React Query and Jest/MSW. Source reports 50% fewer bug reports and 50% faster feature work.",
+            "Built a Jira REST-based WBS tool with Gantt/calendar views, optimistic drag-and-drop, OAuth, historical comparison and URL state; reports 70% faster perceived schedule editing.",
+            "Designed PharmScope pnpm monorepo for customer analytics and admin, with shared auth, chart and domain packages, four-role UI and route guards, isolated customer-support sessions and SSE alerts.",
+            "Applied request cancellation to 65 queries, a generation-based lazy-load retry, 1,389 Vitest cases and 31 Playwright auth end-to-end cases; used a non-root nginx deployment.",
+            "Built a preprocessing back office with preview, draft and submission states, idempotency identifiers and accessibility tokens; source lists 1,766 node:test cases and six Playwright specs. Real SSO, server authorization, audit, idempotency and batch execution were not verified in production."
+          ],
+          [
+            "HTBeyond Co. | Frontend Developer | Aug 2021-Dec 2024",
+            "Developed booking, payment, resident application, POS and kiosk interfaces for a platform serving 500 apartment complexes and 100K monthly active users.",
+            "Migrated 145 JavaScript/JSX files to four through TypeScript adoption; source reports about 70% fewer type-related runtime errors, 80% fewer post-release hotfixes and 90% fewer stale-data issues.",
+            "Built POS and kiosk with React Query and Recoil, payment cancellation, card-reader and printer integration, and BroadcastChannel/localStorage synchronization between independent windows without a new WebSocket server.",
+            "Extended resident booking, product option groups, cart pricing and smart-apartment integrations; introduced global modal/bottom-sheet handling and Storybook components.",
+            "Moved edge frontend serving from pm2 to nginx and standardized versioned deployments with Jenkins, Ansible and S3. Source reports 90% faster deployments and 60% faster trace/rollback response.",
+            "Built NestJS/PostgreSQL quiz state and scoring/reporting modules; source reports approximately 50 concurrent participants."
           ]
-        },
-        {
-          "heading": "Experience",
-          "items": [
-            {
-              "text": "The resume lists employment at 주식회사 알스솔루션 from March 2025, with frontend conventions, shared packages, Jenkins deployment pipelines and reusable design systems across multiple projects.",
-              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
-            }
-          ]
-        },
-        {
-          "heading": "Selected engineering work",
-          "items": [
-            {
-              "text": "Describes a React/TypeScript back-office application, staged migration to Ant Design, AWS S3 uploads, and rebuilding a pharmacy-management frontend during a JSP-to-Spring backend transition.",
-              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
-            }
-          ]
-        },
-        {
-          "heading": "Listed technologies",
-          "items": [
-            {
-              "text": "React, TypeScript, React Query, Zustand, Zod, Tailwind CSS, Storybook, Vitest, Playwright, Jenkins, GitHub Actions, Docker, Node.js and PostgreSQL.",
-              "source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Game crafting calculator | 2020-2026: solo development and operation; recursive recipe expansion, material aggregation and costs. Migrated NestJS to Django REST Framework with 3,000 regression scenarios, and CRA to Vite; source reports 3.3K users and ~30% return rate.",
+          "Student council management web app (2018): equipment loans, department information and announcements; source reports approximately 80% reduction in administrative handling time.",
+          "Campus programming contest (2018): web voting and vote-history application using Node.js, Vue.js and MySQL; second-place award."
+        ],
+        "education": [
+          "Inha University | B.Eng., Information and Communications Engineering | Feb 2016-Feb 2020."
+        ],
+        "skills": "Frontend: React, TypeScript, JavaScript, HTML, CSS, Vite, pnpm monorepo. State: React Query, Zustand, Redux, Recoil, Zod. UI: Tailwind, Ant Design, Emotion, MUI, Bootstrap, Storybook. Testing: Vitest, Playwright, Jest, MSW, node:test. Infrastructure: AWS S3, Amplify, CodeArtifact, Jenkins, GitHub Actions, Docker, Ansible. Backend: Node.js, NestJS, Django, PostgreSQL, MySQL. AI-assisted workflows: Claude Code, Cursor."
+      },
       "file": "data/demo/resumes/shuobyian.pdf",
-      "sha256": "80536717f913b667c8d6ad025b8775be8521847ed04518f85d2811c8c3d9f8e0",
-      "pages": 1,
-      "text_characters": 1391,
+      "sha256": "1ec3883f78c173b2b09f34c070aaf043c4c1666b10c085e9383dae2d6e891d6f",
+      "pages": 2,
+      "text_characters": 4930,
       "github_url": "https://github.com/shuobyian",
       "original_resume_source_url": "https://github.com/shuobyian/portfolio/blob/main/resume.md",
       "limited_source": false,
@@ -847,54 +723,43 @@
       "kind": "reconstructed_demo_resume",
       "sources": [
         "https://tadiwanashedzvoti.com/",
-        "https://github.com/TDD66"
+        "https://github.com/TDD66",
+        "https://tadiwanashedzvoti.com/resume.html",
+        "https://tadiwanashedzvoti.com/projects.html"
       ],
       "limitations": [
-        "Reconstructed from self-published portfolio claims; education and employment dates were not available on the retrieved page."
+        "Reconstructed from self-published portfolio and resume claims; employment and reported outcomes have not been independently verified."
       ],
-      "generated_on": "2026-11-02",
-      "claim_provenance": [
-        {
-          "heading": "Profile",
-          "items": [
-            {
-              "text": "Manchester-based software engineer describing Java full-stack development, backend services and cloud infrastructure.",
-              "source_url": "https://tadiwanashedzvoti.com/"
-            }
+      "generated_on": "2026-11-03",
+      "claim_provenance": {
+        "profile": "Manchester-based software engineer focused on Java full-stack development, backend services and cloud infrastructure.",
+        "experience": [
+          [
+            "THG Ingenuity | Graduate Software Engineer | Manchester | Sep 2024-present",
+            "Built and maintained Java Spring Boot order-processing microservices; reports increasing throughput 50%, from 5,000 to 7,500 orders/minute through performance and architecture improvements.",
+            "Automated build, test and deployment using Jenkins and GitHub Actions; integrated external client systems while protecting scalability and backward compatibility.",
+            "Led distributed application migration to Google Cloud, including infrastructure, Docker, DNS and pipeline modernization; provided third-line support and participated in agile delivery."
+          ],
+          [
+            "Bright Network Technology Academy | Software Engineering Trainee | Jan-Apr 2024",
+            "Completed an intensive frontend and backend bootcamp using Java, JavaScript, Spring, SQL, React, HTML and CSS."
           ]
-        },
-        {
-          "heading": "Experience",
-          "items": [
-            {
-              "text": "The portfolio identifies THG Ingenuity as the employer and describes work on high-throughput order-processing microservices for retail platforms.",
-              "source_url": "https://tadiwanashedzvoti.com/"
-            }
-          ]
-        },
-        {
-          "heading": "Selected projects",
-          "items": [
-            {
-              "text": "Rate My Uni: university-review application with React, Spring Boot and PostgreSQL. Portfolio infrastructure: a GCP Cloud Resume Challenge project with Cloud Storage hosting, HTTPS load balancing/CDN, a Python Cloud Run visitor counter, Firestore, Terraform and automated deployment.",
-              "source_url": "https://tadiwanashedzvoti.com/"
-            }
-          ]
-        },
-        {
-          "heading": "Listed technologies",
-          "items": [
-            {
-              "text": "Java, JavaScript, C++, Python, Spring Boot, React, GCP, Terraform, Docker, Kubernetes, Jenkins, GitHub Actions, PostgreSQL and Firestore.",
-              "source_url": "https://tadiwanashedzvoti.com/"
-            }
-          ]
-        }
-      ],
+        ],
+        "projects": [
+          "Rate My Uni: student review application built end-to-end with React and Material UI, Java 21 Spring Boot REST API and PostgreSQL; uses Cloudflare R2 for image storage.",
+          "Hosted frontend, API and PostgreSQL on Railway with Cloudflare DNS, TLS and CDN; implemented JWT, Google OAuth and email magic links, transactional email through Resend / Amazon SES, and Ehcache.",
+          "Cloud Resume Challenge: static site in Google Cloud Storage behind HTTPS load balancing and Cloud CDN; Python Cloud Run service writes a visitor counter to Firestore.",
+          "Provisioned GCP resources with Terraform and GCS state; GitHub Actions plans on pull requests and applies on merge; separate Cloud Build triggers deploy frontend and backend using Workload Identity Federation."
+        ],
+        "education": [
+          "MEng, Electrical and Electronic Engineering, University of Manchester | Sep 2019-Jun 2023. Applied parallel and cloud computing to radar signal detection and built hardware-software and real-time processing systems."
+        ],
+        "skills": "Java; JavaScript; C++; Python; Spring Boot; React; GCP; Terraform; Docker; Kubernetes; Jenkins; GitHub Actions; PostgreSQL; Firestore."
+      },
       "file": "data/demo/resumes/TDD66.pdf",
-      "sha256": "0554985b561afbfdf22b0f899c06839014aa5fbff0766f55c6c5a5d77ba3fd19",
+      "sha256": "f81e0c3d5afe279be00093cbac92f3faeef45817a2a40108b1b447a3c64d4414",
       "pages": 1,
-      "text_characters": 1184,
+      "text_characters": 2655,
       "github_url": "https://github.com/TDD66",
       "original_resume_source_url": "https://tadiwanashedzvoti.com/",
       "limited_source": false,

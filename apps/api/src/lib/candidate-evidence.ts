@@ -1,7 +1,6 @@
 // Prepares one candidate's evidence across all selected repositories for a single model request.
 // Personal evidence is only the exact attributed lines that are present in stored source; the
 // surrounding chunks are context. Every line is sent once and keeps its own attribution.
-import { z } from 'zod';
 import {
   attributeContributions,
   type CandidateIdentity,
@@ -470,103 +469,5 @@ export function buildCandidateEvidence(
         report.limitations.map((limitation) => ({ repo: repos[i]!.repo, limitation })),
       ),
     },
-  };
-}
-
-// ---- Prepared files on disk ----
-
-const SnapshotSchema = z.object({
-  commitSha: z.string(),
-  files: z.array(z.object({ path: z.string(), sha: z.string(), content: z.string() })),
-  skipped: z.array(z.object({ path: z.string(), reason: z.string() })),
-});
-
-const CollectedSchema = z.object({
-  repository: z.object({
-    owner: z.string(),
-    repo: z.string(),
-    commitSha: z.string(),
-    fork: z.boolean(),
-    ownerId: z.number(),
-  }),
-  commits: z.array(z.unknown()),
-  details: z.array(z.tuple([z.string(), z.unknown()])),
-  prLookups: z.array(z.tuple([z.string(), z.unknown()])),
-  gaps: z.array(z.unknown()),
-  requestsUsed: z.number(),
-});
-
-const PreparedCandidateFileSchema = z.object({
-  subject: z.object({ kind: z.enum(['demo', 'user']), key: z.string().min(1) }),
-  identity: z.object({
-    githubUserId: z.number().int(),
-    login: z.string(),
-    verifiedEmails: z.array(z.string()),
-  }),
-  repos: z.array(
-    z.union([
-      z.object({
-        owner: z.string(),
-        repo: z.string(),
-        unavailable: z.string(),
-        requestedSha: z.string().nullable().optional(),
-      }),
-      z.object({
-        owner: z.string(),
-        repo: z.string(),
-        collectedFor: z.number().int(),
-        snapshot: SnapshotSchema,
-        collected: CollectedSchema,
-      }),
-    ]),
-  ),
-  resume: z.object({ text: z.string() }).nullable(),
-  dataUse: z.enum(['approved_public_demo', 'restricted']),
-  source: z.unknown().optional(),
-});
-
-/** Maps become entry arrays so the prepared candidate survives JSON. */
-export function serializePreparedCandidate(prepared: PreparedCandidate, source?: unknown): string {
-  return JSON.stringify({
-    ...prepared,
-    repos: prepared.repos.map((r) =>
-      isAvailable(r)
-        ? {
-            ...r,
-            collected: {
-              ...r.collected,
-              details: [...r.collected.details],
-              prLookups: [...r.collected.prLookups],
-            },
-          }
-        : r,
-    ),
-    ...(source !== undefined && { source }),
-  });
-}
-
-/** Validates a prepared file's structure; the nested GitHub records came from our own collectors. */
-export function parsePreparedCandidate(json: unknown): PreparedCandidate {
-  const parsed = PreparedCandidateFileSchema.safeParse(json);
-  if (!parsed.success) throw new EvidenceInputError('Prepared candidate file is malformed');
-  const { subject, identity, resume, dataUse } = parsed.data;
-  return {
-    subject,
-    identity,
-    resume,
-    dataUse,
-    repos: parsed.data.repos.map((r) =>
-      'unavailable' in r
-        ? r
-        : {
-            ...r,
-            snapshot: r.snapshot as RepoSnapshot,
-            collected: {
-              ...r.collected,
-              details: new Map(r.collected.details),
-              prLookups: new Map(r.collected.prLookups),
-            } as CollectedContributions,
-          },
-    ),
   };
 }

@@ -2,6 +2,7 @@
 import type {
   Answer,
   Arrangement,
+  DemoJob,
   Freshness,
   Offer,
   RelationshipStage,
@@ -71,16 +72,23 @@ export const MESSAGE_STAGES: RelationshipStage[] = ['discussion', 'interview', '
 
 /** Labels for every score state that is not a score; never shown as 0%. */
 export const SCORE_LABELS: Record<Exclude<Score['state'], 'scored'>, string> = {
-  updating: 'Analysis updating',
+  updating: 'Analysis in progress',
   failed: 'Analysis failed',
   outdated: 'Analysis outdated',
   not_analyzed: 'Not analyzed yet',
   no_attributed_code: 'No attributed code',
   zero_priority: 'Every priority is 0',
+  profile_incomplete: 'Profile incomplete',
+};
+
+export const TEXT_SOURCES: Record<DemoJob['textSource'], string> = {
+  full_description: 'Full posting text',
+  source_summary: 'Summary of the original posting',
+  fixture_summary: 'Abbreviated research notes, not the full posting',
 };
 
 const FRESHNESS_LABELS: Partial<Record<Freshness['state'], string>> = {
-  pending: 'Analysis updating',
+  pending: 'Analysis in progress',
   failed: 'Analysis failed',
   outdated: 'Analysis outdated',
   not_applicable: 'Out of scope: not analyzed',
@@ -99,7 +107,6 @@ export const REPO_STATES: Record<RepositoryBreakdown['state'], string> = {
   not_described: 'Analyzed; nothing reported for this repository',
   no_attributed_evidence: 'No attributed code',
   unavailable: 'Could not be fetched',
-  not_prepared: 'Not analyzed yet',
   pending: 'Analysis updating',
   failed: 'Analysis failed',
   outdated: 'Analysis outdated',

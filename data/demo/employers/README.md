@@ -61,6 +61,8 @@ The five non-software controls are outside ClearHire’s proposed software skill
 | job-24 | FYZICAL: [Physical Therapist Outpatient](https://jobs.lever.co/fyzicalhq/ee5a2f01-3056-4989-aeea-e8d24b9c89d4) | Reno, NV, on-site | Physical therapy education; Nevada license or eligibility | None established |
 | job-25 | Western Aircraft: [Pilatus PC-12/47E 14 CFR 135 Captain](https://jobs.lever.co/westair/f6143fd2-e540-4a18-8fda-279ae18bcc60) | Boise, ID, on-site | Commercial pilot and instrument ratings; flight-hour minimums | None established |
 
-The JSON files contain the same employer and job records. Requirements are abbreviated research notes, not full job descriptions. Some postings include seniority, language, licensing or location constraints that can affect eligibility.
+`employers.json` and `jobs.json` contain the same employer and job records. In `jobs.json`, requirements are abbreviated research notes, not full job descriptions. Some postings include seniority, language, licensing or location constraints that can affect eligibility.
+
+`full-postings.json` is the maintained posting content: one entry per `jobs.json` ID, with the source URL, retrieval date (`retrievedOn`), `sourceStatus` and `sourceText` as retrieved on November 3, 2026. The importer uses `sourceText` as the job description and requires each entry's `sourceUrl` to equal the job's `source_url`. `full_description` means the source's own posting text; `source_summary` means a paraphrase of the original page (job-24), noted in `sourceLimitations`. Structured fields such as employment type and compensation are kept as recorded and are null when the source did not supply them. Jobs without an entry fall back to the abbreviated notes, labelled as such, and are never graded automatically.
 
 Job IDs identify fixture slots; several were reused when the employer mix was revised. Refresh any previous imports rather than assuming an ID still identifies the original posting.

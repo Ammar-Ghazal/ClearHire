@@ -18,12 +18,13 @@ function realFiles(): DemoFiles & Record<string, unknown> {
     curated: json('data/demo/public-developers/curated-profiles.json'),
     userSupplied: json('data/demo/public-developers/user-supplied-profiles.json'),
     manifest: json('data/demo/resumes/manifest.json'),
-    descriptions: new Map<string, string>(),
+    postings: json('data/demo/employers/full-postings.json'),
   });
 }
 
 type Rec = Record<string, unknown> & { [k: string]: any };
 const profiles = (f: DemoFiles) => (f.curated as Rec).profiles as Rec[];
+const postings = (f: DemoFiles) => (f.postings as Rec).postings as Rec[];
 
 function issuesOf(files: DemoFiles): string[] {
   try {
@@ -48,7 +49,18 @@ describe('validateDemoData', () => {
       'job-24',
       'job-25',
     ]);
-    expect(data.jobs.every((j) => j.textSource === 'fixture_summary')).toBe(true);
+    // Every posting has retrieved content; job-24 is a paraphrase and says so.
+    expect(data.jobs.filter((j) => j.textSource !== 'full_description')).toEqual([
+      expect.objectContaining({
+        id: 'job-24',
+        textSource: 'source_summary',
+        sourceLimitations: [expect.stringContaining('not verbatim')],
+      }),
+    ]);
+    expect(data.jobs.every((j) => j.retrievedOn === '2026-11-03')).toBe(true);
+    const first = data.jobs[0]!;
+    expect(first.text).toBe(postings(realFiles())[0]!.sourceText);
+    expect(first.text).not.toContain('Abbreviated research notes');
   });
 
   it('keeps established keys, resume provenance and the organization flag', () => {
@@ -96,13 +108,26 @@ describe('validateDemoData', () => {
     expect(after.profileSha256).not.toBe(before.profileSha256);
   });
 
-  it('uses a saved full description and changes the analysed input hash', () => {
+  it('labels the research notes when a posting has no retrieved content', () => {
     const files = realFiles();
     const before = validateDemoData(files).jobs[0]!;
-    const after = validateDemoData({ ...files, descriptions: new Map([['job-01', 'Full text']]) })
-      .jobs[0]!;
-    expect(after).toMatchObject({ textSource: 'full_description', text: 'Full text' });
+    postings(files).shift();
+    const after = validateDemoData(files).jobs[0]!;
+    expect(after).toMatchObject({ textSource: 'fixture_summary', retrievedOn: null });
+    expect(after.text).toContain('Abbreviated research notes, not the full job description:');
     expect(after.inputSha256).not.toBe(before.inputSha256);
+  });
+
+  it('rejects posting content for another URL or an unknown job', () => {
+    const files = realFiles();
+    postings(files)[0]!.sourceUrl = 'https://example.test/other';
+    postings(files).push({ ...postings(files)[1]!, id: 'job-99' });
+    expect(issuesOf(files)).toEqual(
+      expect.arrayContaining([
+        'full-postings.json: job-01: sourceUrl differs from jobs.json source_url',
+        'full-postings.json: postings.25.id: no job with this id',
+      ]),
+    );
   });
 
   it('rejects duplicate keys and identities case-insensitively, naming no values', () => {

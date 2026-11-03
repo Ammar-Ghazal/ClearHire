@@ -30,10 +30,8 @@ const FRESHNESS: Record<Freshness['state'], string> = {
   failed: 'Analysis failed',
   outdated: 'Only an analysis of older inputs exists',
   not_started: 'Not analyzed yet',
-  not_prepared: 'Repositories not prepared yet',
   not_applicable: 'Not analyzed',
   model_not_configured: 'Muse is not configured on the API',
-  input_error: 'Inputs could not be prepared',
 };
 
 const REPO_STATE: Record<RepositoryBreakdown['state'], string> = {
@@ -41,7 +39,6 @@ const REPO_STATE: Record<RepositoryBreakdown['state'], string> = {
   not_described: 'Analyzed, but the model reported nothing for this repository',
   no_attributed_evidence: 'No lines attributed to this account were found',
   unavailable: 'Could not be fetched from GitHub',
-  not_prepared: 'Not fetched yet',
   pending: 'Analysis running',
   failed: 'Analysis failed',
   outdated: 'Only an analysis of older inputs exists',
@@ -151,9 +148,11 @@ export function DemoScreen({ isOperator }: { isOperator: boolean }) {
     void loadMatch();
   }, [loadMatch, candidate?.freshness.state, job?.freshness.state, job?.requirements]);
 
-  // Poll only while a run is pending.
-  const candidatePending = candidate?.run.status === 'pending';
-  const jobPending = job?.run.status === 'pending';
+  // Poll only while a run is queued or pending.
+  const active = (run: DemoJob['run'] | undefined) =>
+    run?.status === 'queued' || run?.status === 'pending';
+  const candidatePending = active(candidate?.run);
+  const jobPending = active(job?.run);
   useEffect(() => {
     if (!candidatePending && !jobPending) return;
     const timer = setInterval(() => {
@@ -164,13 +163,14 @@ export function DemoScreen({ isOperator }: { isOperator: boolean }) {
   }, [candidatePending, jobPending, candidateKey, jobId, loadCandidate, loadJob]);
 
   // Notes and reloads apply only if the same candidate or job is still selected.
-  async function analyzeCandidate(retry: boolean) {
+  /** `regrade` is an explicit fresh run: it never reuses a saved result. */
+  async function analyzeCandidate(regrade: boolean) {
     const key = candidateKey;
     const selected = () => selectedCandidate.current === key;
     setBusy('candidate');
     setCandidateNote(null);
     try {
-      const { result } = await startCandidateAnalysis(key, retry);
+      const { result } = await startCandidateAnalysis(key, regrade);
       if (selected()) {
         setCandidateNote(result === 'cached' ? 'Cached result reused; no new request made.' : null);
       }
@@ -182,13 +182,13 @@ export function DemoScreen({ isOperator }: { isOperator: boolean }) {
     }
   }
 
-  async function analyzeJob(retry: boolean) {
+  async function analyzeJob(regrade: boolean) {
     const id = jobId;
     const selected = () => selectedJob.current === id;
     setBusy('job');
     setJobNote(null);
     try {
-      const { result } = await startJobAnalysis(id, retry);
+      const { result } = await startJobAnalysis(id, regrade);
       if (selected()) {
         setJobNote(result === 'cached' ? 'Cached result reused; no new request made.' : null);
       }
@@ -303,6 +303,7 @@ function StatusLine({ freshness, run }: { freshness: Freshness; run: DemoJob['ru
         ? ` (${freshness.assessmentStatus.replaceAll('_', ' ')})`
         : ''}
       {freshness.errorCode ? ` · ${freshness.errorCode}` : ''}
+      {run.status === 'queued' ? ' · queued' : ''}
       {run.status === 'pending' ? ' · run in progress' : ''}
       {run.status === 'failed' ? ` · last run failed: ${run.errorCode ?? 'unknown'}` : ''}
     </p>
@@ -312,10 +313,9 @@ function StatusLine({ freshness, run }: { freshness: Freshness; run: DemoJob['ru
 function ActionRow(props: {
   isOperator: boolean;
   disabled: boolean;
-  showRetry: boolean;
   busy: boolean;
   note: string | null;
-  onAnalyze: (retry: boolean) => void;
+  onAnalyze: (regrade: boolean) => void;
 }) {
   if (!props.isOperator) return null;
   const button =
@@ -329,15 +329,13 @@ function ActionRow(props: {
       >
         Analyze
       </button>
-      {props.showRetry && (
-        <button
-          className={`${button} border border-slate-300 hover:bg-slate-100`}
-          disabled={props.disabled || props.busy}
-          onClick={() => props.onAnalyze(true)}
-        >
-          Retry
-        </button>
-      )}
+      <button
+        className={`${button} border border-slate-300 hover:bg-slate-100`}
+        disabled={props.disabled || props.busy}
+        onClick={() => props.onAnalyze(true)}
+      >
+        Regrade
+      </button>
       {props.note && <span className="text-sm text-slate-600">{props.note}</span>}
     </div>
   );
@@ -348,7 +346,7 @@ function CandidatePanel(props: {
   isOperator: boolean;
   busy: boolean;
   note: string | null;
-  onAnalyze: (retry: boolean) => void;
+  onAnalyze: (regrade: boolean) => void;
 }) {
   const { candidate } = props;
   const { resume } = candidate;
@@ -401,7 +399,6 @@ function CandidatePanel(props: {
       <ActionRow
         isOperator={props.isOperator}
         disabled={blocked || candidate.run.status === 'pending'}
-        showRetry={candidate.run.status === 'failed' || candidate.transientRepos.length > 0}
         busy={props.busy}
         note={props.note}
         onAnalyze={props.onAnalyze}
@@ -574,7 +571,7 @@ function JobPanel(props: {
   isOperator: boolean;
   busy: string | null;
   note: string | null;
-  onAnalyze: (retry: boolean) => void;
+  onAnalyze: (regrade: boolean) => void;
   onPriority: (skillId: string, priority: number | null) => void;
 }) {
   const { job } = props;
@@ -620,7 +617,6 @@ function JobPanel(props: {
           job.run.status === 'pending' ||
           job.freshness.state === 'model_not_configured'
         }
-        showRetry={job.run.status === 'failed'}
         busy={props.busy === 'job'}
         note={props.note}
         onAnalyze={props.onAnalyze}

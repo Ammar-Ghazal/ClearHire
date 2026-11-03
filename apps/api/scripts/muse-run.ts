@@ -1,29 +1,35 @@
-// Manual, paid evaluation command. Runs one analysis at a time and prints coverage and spend.
-//   pnpm --filter @clearhire/api exec tsx scripts/muse-run.ts candidate <prepared key> [--retry] [--ceiling N]
-//   pnpm --filter @clearhire/api exec tsx scripts/muse-run.ts job <job id> [--retry]
+// Manual, paid evaluation command. Runs one live analysis at a time (repositories are fetched from
+// GitHub and held only in memory) and prints the result and spend.
+//   pnpm --filter @clearhire/api exec tsx scripts/muse-run.ts candidate <demo key> [--retry] [--fresh]
+//   pnpm --filter @clearhire/api exec tsx scripts/muse-run.ts job <job id> [--retry] [--fresh]
 //   pnpm --filter @clearhire/api exec tsx scripts/muse-run.ts match <demo key> <job id>
 //   pnpm --filter @clearhire/api exec tsx scripts/muse-run.ts recover
-import { eq } from 'drizzle-orm';
-import { readFileSync } from 'node:fs';
+import { CandidateAssessmentSchema, JobAssessmentSchema } from '@clearhire/shared';
+import { and, desc, eq } from 'drizzle-orm';
 import { parseArgs } from 'node:util';
 import { pool, db } from '../src/db/client.js';
-import { museCalls } from '../src/db/schema.js';
+import { demoCandidates, demoJobs, museCalls, skillAssessments } from '../src/db/schema.js';
 import { env, museConfigured } from '../src/env.js';
-import {
-  analyzeCandidate,
-  analyzeJob,
-  matchSaved,
-  recoverStaleAssessments,
-  type PreparedJob,
-} from '../src/lib/assessments.js';
-import { parsePreparedCandidate } from '../src/lib/candidate-evidence.js';
+import { matchSaved, recoverStaleAssessments } from '../src/lib/assessments.js';
+import { safeErrorCode, startCandidateRun, startJobRun } from '../src/lib/demo-runner.js';
 
-const PREPARED = new URL('../../../data/demo/prepared/', import.meta.url);
 const { positionals, values } = parseArgs({
   allowPositionals: true,
-  options: { retry: { type: 'boolean' }, ceiling: { type: 'string' } },
+  options: { retry: { type: 'boolean' }, fresh: { type: 'boolean' } },
 });
 const [command, first, second] = positionals;
+const start = { retry: values.retry ?? false, fresh: values.fresh ?? false };
+const onError = (err: unknown) => console.error(`Run failed: ${safeErrorCode(err)}`);
+
+async function latest(kind: 'candidate' | 'job', key: string) {
+  const [row] = await db
+    .select()
+    .from(skillAssessments)
+    .where(and(eq(skillAssessments.kind, kind), eq(skillAssessments.subjectKey, key)))
+    .orderBy(desc(skillAssessments.startedAt))
+    .limit(1);
+  return row;
+}
 
 async function report(assessmentId: string, cached: boolean) {
   const calls = await db.select().from(museCalls).where(eq(museCalls.assessmentId, assessmentId));
@@ -46,35 +52,41 @@ try {
   } else if (!museConfigured) {
     throw new Error('Set META_API_KEY and META_MODEL in .env first');
   } else if (command === 'candidate' && first) {
-    const prepared = parsePreparedCandidate(
-      JSON.parse(readFileSync(new URL(`candidates/${first}.json`, PREPARED), 'utf8')),
-    );
-    const { assessmentId, assessment, cached } = await analyzeCandidate(prepared, {
-      retryFailed: values.retry ?? false,
-      ...(values.ceiling && { inputTokenCeiling: Number(values.ceiling) }),
-    });
+    const run = await startCandidateRun(first, start, { onError });
+    await run.done;
+    const [subject] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, first));
+    const row = await latest('candidate', first);
+    if (subject?.runStatus === 'failed' || !row || row.status === 'failed') {
+      throw new Error(`Analysis failed (${subject?.runError ?? row?.errorCode ?? 'unknown'})`);
+    }
+    const assessment = CandidateAssessmentSchema.parse(row.result);
     console.log(`${assessment.status}; evidence ${assessment.coverage.evidence}`);
     console.log(
       `  ${assessment.skills.length} supported skill(s), ${assessment.unsupportedSkills.length} unsupported, ` +
         `${assessment.coverage.omissions.length} omission(s), ` +
         `${assessment.coverage.unavailableRepos.length} unavailable repo(s)`,
     );
+    for (const r of row.inputManifest?.repos ?? []) {
+      console.log(`  ${r.repo} @ ${r.commitSha?.slice(0, 7) ?? `unavailable (${r.unavailable})`}`);
+    }
     for (const s of assessment.skills) console.log(`  ${s.skillId} L${s.level} (${s.confidence})`);
-    await report(assessmentId, cached);
+    await report(row.id, run.result === 'cached');
   } else if (command === 'job' && first) {
-    const job = JSON.parse(
-      readFileSync(new URL(`jobs/${first}.json`, PREPARED), 'utf8'),
-    ) as PreparedJob;
-    const { assessmentId, assessment, cached } = await analyzeJob(job, {
-      retryFailed: values.retry ?? false,
-    });
+    const run = await startJobRun(first, start, { onError });
+    await run.done;
+    const [subject] = await db.select().from(demoJobs).where(eq(demoJobs.id, first));
+    const row = await latest('job', first);
+    if (subject?.runStatus === 'failed' || !row || row.status === 'failed') {
+      throw new Error(`Analysis failed (${subject?.runError ?? row?.errorCode ?? 'unknown'})`);
+    }
+    const assessment = JobAssessmentSchema.parse(row.result);
     console.log(
       `${assessment.inScope ? 'in scope' : `out of scope: ${assessment.outOfScopeReason}`}`,
     );
     for (const r of assessment.requirements) {
       console.log(`  ${r.skillId} L${r.requiredLevel} priority ${r.suggestedPriority}`);
     }
-    await report(assessmentId, cached);
+    await report(row.id, run.result === 'cached');
   } else if (command === 'match' && first && second) {
     console.log(JSON.stringify(await matchSaved({ kind: 'demo', key: first }, second), null, 2));
   } else {

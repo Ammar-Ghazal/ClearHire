@@ -9,8 +9,6 @@ import {
   jobPriorityOverrides,
   users,
 } from '../db/schema.js';
-import { fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
-import type { PreparedCandidate } from './candidate-evidence.js';
 import {
   DemoImportError,
   extractChangedResumes,
@@ -38,7 +36,8 @@ interface Options {
   jobLines?: string[];
   sourceUrl?: string;
   employerName?: string;
-  prepared?: PreparedCandidate;
+  /** Retrieved posting text for JOB; absent means only the research notes exist. */
+  posting?: string;
   note?: string;
 }
 
@@ -112,13 +111,21 @@ function bundle(o: Options = {}): DemoBundle {
           ]
         : [],
     },
-    descriptions: new Map<string, string>(),
+    postings: {
+      retrievedOn: '2026-11-03',
+      postings: o.posting
+        ? [
+            {
+              id: JOB,
+              sourceUrl: o.sourceUrl ?? 'https://acme.test/jobs/1',
+              sourceStatus: 'full_description',
+              sourceText: o.posting,
+            },
+          ]
+        : [],
+    },
   };
-  return {
-    data: validateDemoData(files),
-    pdfs: new Map(pdf ? [[CAND, pdf]] : []),
-    prepared: new Map(o.prepared ? [[CAND, o.prepared]] : []),
-  };
+  return { data: validateDemoData(files), pdfs: new Map(pdf ? [[CAND, pdf]] : []) };
 }
 
 async function runImport(b: DemoBundle) {
@@ -129,32 +136,6 @@ async function runImport(b: DemoBundle) {
 
 const candidateRow = async () =>
   (await db.select().from(demoCandidates).where(eq(demoCandidates.key, CAND)))[0]!;
-
-const prepared = (files = 10) =>
-  fixtureCandidate([fixtureRepo('one', [{ path: 'src/a.ts', content: sourceLines(files) }], [])], {
-    subject: { kind: 'demo', key: CAND },
-  });
-
-/** A preparation whose snapshot is at the curated pin, so it covers every current selection. */
-function pinnedPrepared(): PreparedCandidate {
-  const base = prepared();
-  const commitSha = 'a'.repeat(40);
-  return {
-    ...base,
-    repos: base.repos.map((r) =>
-      'unavailable' in r
-        ? r
-        : {
-            ...r,
-            snapshot: { ...r.snapshot, commitSha },
-            collected: {
-              ...r.collected,
-              repository: { ...r.collected.repository, commitSha },
-            },
-          },
-    ),
-  };
-}
 
 afterAll(async () => {
   if (up) {
@@ -169,20 +150,19 @@ afterAll(async () => {
 describe.runIf(up)('importDemoData (Postgres)', () => {
   it('imports once, then writes and extracts nothing when inputs are unchanged', async () => {
     const usersBefore = (await db.select({ n: sql<number>`count(*)::int` }).from(users))[0]!.n;
-    const first = await runImport(bundle({ prepared: prepared() }));
+    const first = await runImport(bundle());
     expect(first.stats.candidates.inserted).toBe(2);
     expect(first.extractions.size).toBe(1);
     expect(await candidateRow()).toMatchObject({
       resumeStatus: 'extracted',
       resumeSource: { kind: 'original_public_resume' },
-      prepared: expect.anything(),
     });
     const [bare] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, BARE));
-    expect(bare).toMatchObject({ resumeStatus: 'none', resumeText: null, prepared: null });
+    expect(bare).toMatchObject({ resumeStatus: 'none', resumeText: null });
     const [nurse] = await db.select().from(demoJobs).where(eq(demoJobs.id, OTHER_JOB));
     expect(nurse).toMatchObject({ inScope: false, textSource: 'fixture_summary' });
 
-    const again = await runImport(bundle({ prepared: prepared() }));
+    const again = await runImport(bundle());
     expect(again.extractions.size).toBe(0);
     for (const table of ['employers', 'jobs', 'candidates'] as const) {
       expect(again.stats[table]).toMatchObject({ inserted: 0, updated: 0 });
@@ -193,39 +173,36 @@ describe.runIf(up)('importDemoData (Postgres)', () => {
 
   it('re-extracts a replaced PDF and clears text when its manifest entry is removed', async () => {
     const replaced = makePdf([resumeText('Grace')]);
-    const { stats } = await runImport(bundle({ pdf: replaced, prepared: prepared() }));
+    const { stats } = await runImport(bundle({ pdf: replaced}));
     expect(stats.candidates.updated).toBe(1);
     const row = await candidateRow();
     expect(row.resumePdfSha256).toBe(sha(replaced));
     expect(row.resumeText).toContain('Grace');
 
-    await runImport(bundle({ pdf: null, prepared: prepared() }));
+    await runImport(bundle({ pdf: null}));
     expect(await candidateRow()).toMatchObject({
       resumeStatus: 'none',
       resumePdfSha256: null,
       resumeText: null,
       resumeSource: null,
     });
-    await runImport(bundle({ prepared: prepared() }));
+    await runImport(bundle());
   });
 
-  it('never overwrites a preparation the database already has for this identity', async () => {
-    const before = (await candidateRow()).preparedSha256;
-    expect(before).not.toBeNull();
-    // A different saved file for the same identity is ignored.
-    const { stats } = await runImport(bundle({ prepared: prepared(20) }));
-    expect(stats.candidates.unchanged).toBe(2);
-    expect((await candidateRow()).preparedSha256).toBe(before);
-  });
-
-  it('replaces a stored preparation that no longer covers the selections with one that does', async () => {
-    const before = (await candidateRow()).preparedSha256;
-    await runImport(bundle({ prepared: pinnedPrepared() }));
-    const replaced = (await candidateRow()).preparedSha256;
-    expect(replaced).not.toBe(before);
-    // Once the stored copy covers the selections, a saved file never replaces it.
-    await runImport(bundle({ prepared: prepared(20) }));
-    expect((await candidateRow()).preparedSha256).toBe(replaced);
+  it('imports retrieved posting text and clears overrides when it replaces the notes', async () => {
+    await db
+      .insert(jobPriorityOverrides)
+      .values({ jobKey: JOB, skillId: 'api-design', priority: 3 });
+    const { stats } = await runImport(bundle({ posting: 'Build TypeScript services.' }));
+    expect(stats.overridesCleared).toBe(1);
+    const [job] = await db.select().from(demoJobs).where(eq(demoJobs.id, JOB));
+    expect(job).toMatchObject({
+      text: 'Build TypeScript services.',
+      textSource: 'full_description',
+      retrievedOn: '2026-11-03',
+      sourceLimitations: [],
+    });
+    await runImport(bundle());
   });
 
   it('clears priority overrides when only the posting URL changes', async () => {
@@ -233,10 +210,10 @@ describe.runIf(up)('importDemoData (Postgres)', () => {
       .insert(jobPriorityOverrides)
       .values({ jobKey: JOB, skillId: 'api-design', priority: 3 });
     const { stats } = await runImport(
-      bundle({ sourceUrl: 'https://acme.test/jobs/1b', prepared: prepared() }),
+      bundle({ sourceUrl: 'https://acme.test/jobs/1b'}),
     );
     expect(stats.overridesCleared).toBe(1);
-    await runImport(bundle({ prepared: prepared() }));
+    await runImport(bundle());
   });
 
   it('clears priority overrides only for postings whose analysed input changed', async () => {
@@ -244,7 +221,7 @@ describe.runIf(up)('importDemoData (Postgres)', () => {
       { jobKey: JOB, skillId: 'unit-testing', priority: 3 },
       { jobKey: OTHER_JOB, skillId: 'unit-testing', priority: 1 },
     ]);
-    const { stats } = await runImport(bundle({ jobLines: ['Go services'], prepared: prepared() }));
+    const { stats } = await runImport(bundle({ jobLines: ['Go services']}));
     expect(stats.overridesCleared).toBe(1);
     const left = await db
       .select()

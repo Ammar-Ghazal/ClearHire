@@ -12,6 +12,7 @@ import {
   type DemoIdentity,
   type DemoMatch,
   type DemoSide,
+  type Freshness,
   type Interview,
   type InterviewItem,
   type MatchDetail,
@@ -45,6 +46,7 @@ import {
 } from '../lib/demo-identity.js';
 import {
   candidateState,
+  gradable,
   jobState,
   matchFromStates,
   priorityOverrides,
@@ -235,7 +237,12 @@ function scoreOf(
   c: Subject<CandidateRow, CandidateState>,
   j: Subject<JobRow, JobState>,
 ): Score {
-  const none = { compatibility: null, evidenceCoverage: null, provisional: false };
+  const running = (side: { row: { runStatus: string }; state: { freshness: Freshness } }) =>
+    side.row.runStatus === 'queued' ||
+    side.row.runStatus === 'pending' ||
+    side.state.freshness.state === 'pending';
+  const pending = running(c) || running(j);
+  const none = { compatibility: null, evidenceCoverage: null, provisional: false, pending };
   if (match.availability === 'available') {
     const m = match.match;
     // Pairs are in scope, so an unscored match here is one whose priorities are all 0.
@@ -245,20 +252,21 @@ function scoreOf(
           compatibility: m.compatibility,
           evidenceCoverage: m.evidenceCoverage,
           provisional: m.provisional,
+          pending,
         }
       : { state: 'zero_priority', ...none };
   }
+  if (!gradable(c.row)) return { state: 'profile_incomplete', ...none };
   if (match.reason === 'no_attributed_evidence') return { state: 'no_attributed_code', ...none };
   const side = match.reason === 'candidate_not_current' ? c : j;
   const fresh = side.state.freshness.state;
-  const state =
-    side.row.runStatus === 'pending' || fresh === 'pending'
-      ? 'updating'
-      : side.row.runStatus === 'failed' || fresh === 'failed'
-        ? 'failed'
-        : fresh === 'outdated'
-          ? 'outdated'
-          : 'not_analyzed';
+  const state = running(side)
+    ? 'updating'
+    : side.row.runStatus === 'failed' || fresh === 'failed'
+      ? 'failed'
+      : fresh === 'outdated'
+        ? 'outdated'
+        : 'not_analyzed';
   return { state, ...none };
 }
 

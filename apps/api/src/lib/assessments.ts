@@ -1,6 +1,7 @@
-// Runs and stores candidate and job assessments. One row per content-addressed cache key acts as the
-// cache, the saved result and the lock that stops duplicate paid calls. Spend is reserved atomically
-// across scopes before every attempt and settled conservatively afterwards.
+// Runs and stores candidate and job assessments. Every run is its own row; a pending row per subject
+// is the lock that stops duplicate paid calls, and saved rows for the same code-free input key act as
+// the cache unless a run is explicitly fresh. Only results and metadata are stored, never repository
+// code. Spend is reserved atomically across scopes before every attempt and settled conservatively.
 import {
   CandidateAssessmentSchema,
   JobAssessmentSchema,
@@ -18,9 +19,11 @@ import {
   museCalls,
   museSpendBudgets,
   skillAssessments,
+  type InputManifest,
 } from '../db/schema.js';
 import { env } from '../env.js';
 import {
+  scrubQuotedSource,
   verifyCandidate,
   verifyJob,
   VERIFIER_VERSION,
@@ -30,7 +33,6 @@ import { ATTRIBUTION_VERSION } from './attribution.js';
 import {
   buildCandidateEvidence,
   SELECTION_VERSION,
-  type CandidateEvidence,
   type DataUse,
   type PreparedCandidate,
 } from './candidate-evidence.js';
@@ -71,6 +73,9 @@ type Saved = (typeof SAVED)[number];
 type Row = typeof skillAssessments.$inferSelect;
 const usd = (dollars: number) => Math.round(dollars * 1_000_000);
 
+/** Lifetime analysis spend per demo seeker, across all their repositories and runs. */
+export const SEEKER_SPEND_CAP_USD = 15;
+
 export interface PreparedJob extends JobInput {
   dataUse: DataUse;
 }
@@ -80,6 +85,8 @@ export interface RunOptions {
   inputTokenCeiling?: number;
   /** Re-runs a failed assessment; failures are never resent automatically. */
   retryFailed?: boolean;
+  /** Explicit regrade: always a new assessment, never a saved result for the same input. */
+  fresh?: boolean;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
@@ -119,14 +126,20 @@ export const cacheKeyOf = (parts: Record<string, unknown>) =>
 
 // ---- Spend ledger ----
 
-function scopesFor(kind: 'candidate' | 'job', subject: { kind: string; key: string }, ns = '') {
+export function scopesFor(
+  kind: 'candidate' | 'job',
+  subject: { kind: string; key: string },
+  ns = '',
+) {
+  const own = `${ns}subject:${kind}:${subject.kind}:${subject.key}`;
+  // A demo seeker spends only their own allowance; the shared daily cap must not block it.
+  if (kind === 'candidate' && subject.kind === 'demo') {
+    return [{ scope: own, cap: usd(SEEKER_SPEND_CAP_USD) }];
+  }
   const day = new Date().toISOString().slice(0, 10);
   return [
     { scope: `${ns}daily:${day}`, cap: usd(env.META_DAILY_CAP_USD) },
-    {
-      scope: `${ns}subject:${kind}:${subject.kind}:${subject.key}`,
-      cap: usd(env.META_SUBJECT_CAP_USD),
-    },
+    { scope: own, cap: usd(env.META_SUBJECT_CAP_USD) },
   ].sort((a, b) => (a.scope < b.scope ? -1 : 1));
 }
 
@@ -319,10 +332,44 @@ export async function recoverStaleAssessments(subject?: {
 
 type Claim = { kind: 'fresh'; row: Row } | { kind: 'saved'; row: Row };
 
+const sameSubject = (values: typeof skillAssessments.$inferInsert) =>
+  and(
+    eq(skillAssessments.kind, values.kind),
+    eq(skillAssessments.subjectKind, values.subjectKind),
+    eq(skillAssessments.subjectKey, values.subjectKey),
+  );
+
 async function claim(
   values: typeof skillAssessments.$inferInsert,
-  retryFailed: boolean,
+  { retryFailed, fresh }: { retryFailed: boolean; fresh: boolean },
 ): Promise<Claim> {
+  if (!fresh) {
+    const [saved] = await db
+      .select()
+      .from(skillAssessments)
+      .where(
+        and(
+          sameSubject(values),
+          eq(skillAssessments.cacheKey, values.cacheKey),
+          inArray(skillAssessments.status, [...SAVED]),
+        ),
+      )
+      .orderBy(desc(skillAssessments.completedAt))
+      .limit(1);
+    if (saved) return { kind: 'saved', row: saved };
+    const [latest] = await db
+      .select({ status: skillAssessments.status, errorCode: skillAssessments.errorCode })
+      .from(skillAssessments)
+      .where(and(sameSubject(values), eq(skillAssessments.cacheKey, values.cacheKey)))
+      .orderBy(desc(skillAssessments.startedAt))
+      .limit(1);
+    if (latest?.status === 'failed' && !retryFailed) {
+      throw new MuseError(
+        'previous_failure',
+        `A previous run failed (${latest.errorCode ?? 'unknown'})`,
+      );
+    }
+  }
   // Millisecond timestamps, so `startedAt` round-trips exactly as the run token.
   const now = new Date();
   const [inserted] = await db
@@ -331,38 +378,15 @@ async function claim(
     .onConflictDoNothing()
     .returning();
   if (inserted) return { kind: 'fresh', row: inserted };
-
-  const [row] = await db
-    .select()
+  // The subject's single-flight index is held by another run.
+  const [running] = await db
+    .select({ id: skillAssessments.id })
     .from(skillAssessments)
-    .where(eq(skillAssessments.cacheKey, values.cacheKey));
-  if (!row) throw new MuseError('in_progress', 'Assessment is being claimed by another runner');
-  if ((SAVED as readonly string[]).includes(row.status)) return { kind: 'saved', row };
-  if (row.status === 'pending') {
-    if (await failStale(row.id)) {
-      throw new MuseError('previous_failure', 'A previous run was interrupted; retry explicitly');
-    }
-    throw new MuseError('in_progress', 'An identical assessment is already running');
+    .where(and(sameSubject(values), eq(skillAssessments.status, 'pending')));
+  if (running && (await failStale(running.id))) {
+    throw new MuseError('previous_failure', 'A previous run was interrupted; retry explicitly');
   }
-  if (!retryFailed) {
-    throw new MuseError(
-      'previous_failure',
-      `A previous run failed (${row.errorCode ?? 'unknown'})`,
-    );
-  }
-  const [reclaimed] = await db
-    .update(skillAssessments)
-    .set({
-      status: 'pending',
-      errorCode: null,
-      startedAt: new Date(),
-      heartbeatAt: new Date(),
-      completedAt: null,
-    })
-    .where(and(eq(skillAssessments.id, row.id), eq(skillAssessments.status, 'failed')))
-    .returning();
-  if (!reclaimed) throw new MuseError('in_progress', 'An identical assessment is already running');
-  return { kind: 'fresh', row: reclaimed };
+  throw new MuseError('in_progress', 'An assessment of this subject is already running');
 }
 
 /** Saves a result; with `run`, only while that run still owns the row. Returns false otherwise. */
@@ -386,16 +410,11 @@ async function complete(
   return updated.length > 0;
 }
 
-async function fail(id: string, run: Date, err: unknown, rawOutput?: unknown) {
+async function fail(id: string, run: Date, err: unknown) {
   const code = err instanceof MuseError ? err.code : 'internal_error';
   await db
     .update(skillAssessments)
-    .set({
-      status: 'failed',
-      errorCode: code,
-      completedAt: new Date(),
-      ...(rawOutput !== undefined && { rawOutput }),
-    })
+    .set({ status: 'failed', errorCode: code, completedAt: new Date() })
     .where(currentRun(id, run));
 }
 
@@ -410,7 +429,7 @@ async function runClaimed<O, A>(
   },
   scopes: { scope: string; cap: number }[],
   verify: (output: O) => A & { status?: string },
-  evidence: unknown,
+  fields: Partial<typeof skillAssessments.$inferInsert> = {},
 ): Promise<A> {
   const heartbeat = setInterval(() => {
     void db
@@ -419,7 +438,6 @@ async function runClaimed<O, A>(
       .where(currentRun(row.id, row.startedAt))
       .catch(() => {});
   }, HEARTBEAT_MS);
-  let output: O | undefined;
   try {
     const result = await callMuse({
       config: museConfig(),
@@ -430,20 +448,14 @@ async function runClaimed<O, A>(
       ...(options.fetch && { fetch: options.fetch }),
       ...(options.sleep && { sleep: options.sleep }),
     });
-    output = result.data as O;
-    const assessment = verify(output);
+    const assessment = verify(result.data as O);
     const status = (assessment.status === 'partial' ? 'partial' : 'complete') as Saved;
-    const saved = await complete(
-      row.id,
-      status,
-      { rawOutput: output, evidence, result: assessment },
-      row.startedAt,
-    );
+    const saved = await complete(row.id, status, { ...fields, result: assessment }, row.startedAt);
     if (!saved)
       throw new MuseError('previous_failure', 'This run was superseded; its result was discarded');
     return assessment;
   } catch (err) {
-    await fail(row.id, row.startedAt, err, output);
+    await fail(row.id, row.startedAt, err);
     throw err;
   } finally {
     clearInterval(heartbeat);
@@ -468,42 +480,31 @@ function fitCandidate(prepared: PreparedCandidate, model: MuseModel, ceiling: nu
   throw new MuseError('input_too_large', 'Evidence could not be fitted under the input ceiling');
 }
 
-const storedEvidence = ({ rendered: _rendered, ...rest }: CandidateEvidence) => rest;
-
-function reverifyCandidate(row: Row): CandidateAssessment {
-  const stored = CandidateAssessmentSchema.parse(row.result);
-  if (row.verifierVersion === VERIFIER_VERSION || row.rawOutput === null) return stored;
-  const evidence = { ...(row.evidence as Omit<CandidateEvidence, 'rendered'>), rendered: '' };
-  const output = CandidateOutputSchema.parse(row.rawOutput);
-  return verifyCandidate(output, evidence, {
-    subject: stored.subject,
-    model: row.model as MuseModel,
-  });
+/**
+ * The code-free input key: the subject, model, selected repositories, résumé and every version.
+ * Reads compute it from stored metadata; runs from what they fetched, so both always agree.
+ */
+export function candidateKey(
+  subject: PreparedCandidate['subject'],
+  input: { repos: { owner: string; repo: string }[]; resumeText: string | null },
+  options: RunOptions = {},
+) {
+  const model = selectedModel(options);
+  const repos = [...new Set(input.repos.map((r) => `${r.owner}/${r.repo}`.toLowerCase()))].sort();
+  const resumeSha256 = input.resumeText === null ? null : sha256Hex(input.resumeText);
+  return { model, cacheKey: cacheKeyOf({ kind: 'candidate', subject, model, repos, resumeSha256 }) };
 }
 
-/**
- * The cache key `analyzeCandidate` would claim, with the evidence and body behind it. Pure apart
- * from configuration, so result reads use exactly the same inputs as analysis.
- */
-export function candidateFingerprint(prepared: PreparedCandidate, options: RunOptions = {}) {
-  const model = selectedModel(options);
-  const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
-  if (ceiling + CANDIDATE_MAX_COMPLETION_TOKENS > CONTEXT_WINDOW) {
-    throw new MuseError(
-      'input_too_large',
-      'Input ceiling leaves no room for output in the context window',
-    );
-  }
-  const { evidence, body } = fitCandidate(prepared, model, ceiling);
-  const evidenceHash = sha256Hex(canonicalJson(storedEvidence(evidence)));
-  const noEvidence = evidence.citableCount === 0;
-  const { subject } = prepared;
-  const cacheKey = cacheKeyOf(
-    noEvidence
-      ? { kind: 'candidate', subject, model, evidenceHash, noAttributedEvidence: true }
-      : { kind: 'candidate', subject, body, evidenceHash },
-  );
-  return { model, evidence, body, noEvidence, cacheKey };
+/** The commits and availability a run graded; never any file content. */
+function manifestOf(prepared: PreparedCandidate): InputManifest {
+  return {
+    repos: prepared.repos.map((r) =>
+      'unavailable' in r
+        ? { repo: `${r.owner}/${r.repo}`, commitSha: null, unavailable: r.unavailable }
+        : { repo: `${r.owner}/${r.repo}`, commitSha: r.snapshot.commitSha, unavailable: null },
+    ),
+    resumeSha256: prepared.resume ? sha256Hex(prepared.resume.text) : null,
+  };
 }
 
 export async function analyzeCandidate(
@@ -512,13 +513,27 @@ export async function analyzeCandidate(
 ): Promise<RunResult<CandidateAssessment>> {
   const model = selectedModel(options);
   assertDataUse(model, [prepared.dataUse]);
-  const { evidence, body, noEvidence, cacheKey } = candidateFingerprint(prepared, {
-    ...options,
-    model,
-  });
-  // Resume text is restricted data. Checked before claim() so a refusal leaves no pending row;
-  // the no-evidence branch sends nothing, so it needs no check.
-  if (!noEvidence && prepared.resume) assertDataUse(model, ['restricted']);
+  const ceiling = options.inputTokenCeiling ?? DEFAULT_INPUT_TOKEN_CEILING;
+  if (ceiling + CANDIDATE_MAX_COMPLETION_TOKENS > CONTEXT_WINDOW) {
+    throw new MuseError(
+      'input_too_large',
+      'Input ceiling leaves no room for output in the context window',
+    );
+  }
+  const { evidence, body } = fitCandidate(prepared, model, ceiling);
+  const noEvidence = evidence.citableCount === 0;
+  // Résumé text is restricted data, except demo résumés: the project owner approved sending those
+  // to Contributor mode, including its training use. Checked before claim() so a refusal leaves no
+  // pending row; the no-evidence branch sends nothing, so it needs no check.
+  if (!noEvidence && prepared.resume) {
+    assertDataUse(model, [prepared.subject.kind === 'demo' ? 'approved_public_demo' : 'restricted']);
+  }
+  const { cacheKey } = candidateKey(
+    prepared.subject,
+    { repos: prepared.repos, resumeText: prepared.resume?.text ?? null },
+    { ...options, model },
+  );
+  const inputManifest = manifestOf(prepared);
 
   const claimed = await claim(
     {
@@ -530,14 +545,11 @@ export async function analyzeCandidate(
       catalogueVersion: SKILL_CATALOGUE.version,
       status: 'pending',
     },
-    options.retryFailed ?? false,
+    { retryFailed: options.retryFailed ?? false, fresh: options.fresh ?? false },
   );
   const { row } = claimed;
   if (claimed.kind === 'saved') {
-    const assessment = reverifyCandidate(row);
-    if (row.verifierVersion !== VERIFIER_VERSION) {
-      await complete(row.id, assessment.status, { result: assessment });
-    }
+    const assessment = CandidateAssessmentSchema.parse(row.result);
     return { assessmentId: row.id, assessment, cached: true };
   }
 
@@ -557,7 +569,7 @@ export async function analyzeCandidate(
     await complete(
       row.id,
       'no_attributed_evidence',
-      { evidence: storedEvidence(evidence), result: assessment },
+      { result: assessment, inputManifest },
       row.startedAt,
     );
     return { assessmentId: row.id, assessment, cached: false };
@@ -569,23 +581,16 @@ export async function analyzeCandidate(
     { body, schema: CandidateOutputSchema, timeoutMs: CANDIDATE_TIMEOUT_MS },
     scopesFor('candidate', prepared.subject, options.budgetNamespace),
     (output: ReturnType<typeof CandidateOutputSchema.parse>) =>
-      verifyCandidate(output, evidence, { subject: prepared.subject, model }),
-    storedEvidence(evidence),
+      scrubQuotedSource(
+        verifyCandidate(output, evidence, { subject: prepared.subject, model }),
+        evidence,
+      ),
+    { inputManifest },
   );
   return { assessmentId: row.id, assessment, cached: false };
 }
 
 // ---- Jobs ----
-
-function reverifyJob(row: Row): JobAssessment {
-  const stored = JobAssessmentSchema.parse(row.result);
-  if (row.verifierVersion === VERIFIER_VERSION || row.rawOutput === null) return stored;
-  return verifyJob(
-    JobOutputSchema.parse(row.rawOutput),
-    row.evidence as JobInput,
-    row.model as MuseModel,
-  );
-}
 
 /** The cache key `analyzeJob` would claim; result reads use the same computation. */
 export function jobFingerprint(job: JobInput, options: RunOptions = {}) {
@@ -622,14 +627,11 @@ export async function analyzeJob(
       catalogueVersion: SKILL_CATALOGUE.version,
       status: 'pending',
     },
-    options.retryFailed ?? false,
+    { retryFailed: options.retryFailed ?? false, fresh: options.fresh ?? false },
   );
   const { row } = claimed;
   if (claimed.kind === 'saved') {
-    const assessment = reverifyJob(row);
-    if (row.verifierVersion !== VERIFIER_VERSION)
-      await complete(row.id, 'complete', { result: assessment });
-    return { assessmentId: row.id, assessment, cached: true };
+    return { assessmentId: row.id, assessment: JobAssessmentSchema.parse(row.result), cached: true };
   }
   const assessment = await runClaimed(
     row,
@@ -637,7 +639,6 @@ export async function analyzeJob(
     { body, schema: JobOutputSchema, timeoutMs: JOB_TIMEOUT_MS },
     scopesFor('job', { kind: 'demo', key: job.jobKey }, options.budgetNamespace),
     (output: ReturnType<typeof JobOutputSchema.parse>) => verifyJob(output, input, model),
-    input,
   );
   return { assessmentId: row.id, assessment, cached: false };
 }
@@ -645,15 +646,20 @@ export async function analyzeJob(
 // ---- Read-only lookup ----
 
 export type Lookup<T> =
-  | { state: 'current'; assessment: T; completedAt: Date | null }
+  | {
+      state: 'current';
+      assessment: T;
+      completedAt: Date | null;
+      inputManifest: InputManifest | null;
+    }
   | { state: 'pending' }
   | { state: 'failed'; errorCode: string | null }
   | { state: 'outdated' }
   | { state: 'not_started' };
 
 /**
- * The saved result for exactly this fingerprint. Re-verifies in memory and never writes, so a
- * read can never mark an older input's result as current.
+ * The newest saved result for exactly this input key. Read-only, so a read can never mark an older
+ * input's result as current. A newer pending or failed run of the same input does not hide it.
  */
 export async function assessmentByFingerprint<K extends 'candidate' | 'job'>(
   kind: K,
@@ -661,33 +667,33 @@ export async function assessmentByFingerprint<K extends 'candidate' | 'job'>(
   cacheKey: string,
 ): Promise<Lookup<K extends 'candidate' ? CandidateAssessment : JobAssessment>> {
   type T = K extends 'candidate' ? CandidateAssessment : JobAssessment;
-  const [row] = await db
+  const ofSubject = and(
+    eq(skillAssessments.kind, kind),
+    eq(skillAssessments.subjectKind, subject.kind),
+    eq(skillAssessments.subjectKey, subject.key),
+  );
+  const rows = await db
     .select()
     .from(skillAssessments)
-    .where(
-      and(
-        eq(skillAssessments.cacheKey, cacheKey),
-        eq(skillAssessments.kind, kind),
-        eq(skillAssessments.subjectKind, subject.kind),
-        eq(skillAssessments.subjectKey, subject.key),
-      ),
-    );
-  if (row && (SAVED as readonly string[]).includes(row.status)) {
-    const assessment = kind === 'candidate' ? reverifyCandidate(row) : reverifyJob(row);
-    return { state: 'current', assessment: assessment as T, completedAt: row.completedAt };
+    .where(and(ofSubject, eq(skillAssessments.cacheKey, cacheKey)))
+    .orderBy(desc(skillAssessments.startedAt));
+  const saved = rows.find((r) => (SAVED as readonly string[]).includes(r.status));
+  if (saved) {
+    const schema = kind === 'candidate' ? CandidateAssessmentSchema : JobAssessmentSchema;
+    return {
+      state: 'current',
+      assessment: schema.parse(saved.result) as T,
+      completedAt: saved.completedAt,
+      inputManifest: saved.inputManifest,
+    };
   }
-  if (row?.status === 'pending') return { state: 'pending' };
-  if (row?.status === 'failed') return { state: 'failed', errorCode: row.errorCode };
+  const latest = rows[0];
+  if (latest?.status === 'pending') return { state: 'pending' };
+  if (latest?.status === 'failed') return { state: 'failed', errorCode: latest.errorCode };
   const [older] = await db
     .select({ id: skillAssessments.id })
     .from(skillAssessments)
-    .where(
-      and(
-        eq(skillAssessments.kind, kind),
-        eq(skillAssessments.subjectKind, subject.kind),
-        eq(skillAssessments.subjectKey, subject.key),
-      ),
-    )
+    .where(ofSubject)
     .limit(1);
   return older ? { state: 'outdated' } : { state: 'not_started' };
 }
@@ -753,8 +759,8 @@ export async function matchSaved(
     .from(jobPriorityOverrides)
     .where(eq(jobPriorityOverrides.jobKey, jobKey));
   return matchAssessments(
-    reverifyCandidate(candidateRow),
-    reverifyJob(jobRow),
+    CandidateAssessmentSchema.parse(candidateRow.result),
+    JobAssessmentSchema.parse(jobRow.result),
     new Map(overrides.map((o) => [o.skillId, o.priority])),
   );
 }

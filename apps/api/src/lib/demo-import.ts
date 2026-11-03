@@ -8,17 +8,7 @@ import { resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { demoCandidates, demoEmployers, demoJobs, jobPriorityOverrides } from '../db/schema.js';
-import {
-  parsePreparedCandidate,
-  serializePreparedCandidate,
-  type PreparedCandidate,
-} from './candidate-evidence.js';
-import {
-  effectiveInput,
-  identityMatches,
-  RUN_STALE_MS,
-  type SelectedRepo,
-} from './demo-prepare.js';
+import { RUN_STALE_MS, type SelectedRepo } from './demo-prepare.js';
 import { canonicalJson } from './muse.js';
 import { sha256Hex } from './packets.js';
 import { extractResume, type ResumeExtraction } from './resume-pdf.js';
@@ -57,7 +47,26 @@ const JobSchema = z
   })
   .passthrough();
 
-// Four recorded shapes; only the name and the pinned commit matter for preparation.
+// Retrieved posting content, one per jobs.json entry; `sourceText` is what the source supplied.
+const PostingsSchema = z
+  .object({
+    retrievedOn: z.string().min(1),
+    postings: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          sourceUrl: z.string(),
+          sourceChecked: z.string().nullable().optional(),
+          sourceStatus: z.enum(['full_description', 'source_summary']),
+          sourceText: z.string().trim().min(1),
+          sourceLimitations: z.array(z.string()).optional(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+// Four recorded shapes; only the name and the pinned commit matter for fetching.
 const RepoSchema = z
   .object({
     full_name: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
@@ -138,7 +147,9 @@ export interface JobRecord {
   scenario: string;
   inScope: boolean;
   text: string;
-  textSource: 'full_description' | 'fixture_summary';
+  textSource: 'full_description' | 'source_summary' | 'fixture_summary';
+  retrievedOn: string | null;
+  sourceLimitations: string[];
   raw: unknown;
   recordSha256: string;
   inputSha256: string;
@@ -187,8 +198,8 @@ export interface DemoFiles {
   curated: unknown;
   userSupplied: unknown;
   manifest: unknown;
-  /** Full job descriptions by job id, when saved. */
-  descriptions: ReadonlyMap<string, string>;
+  /** full-postings.json: the maintained posting content. */
+  postings: unknown;
 }
 
 const hashOf = (value: unknown) => sha256Hex(canonicalJson(value));
@@ -217,7 +228,8 @@ export function validateDemoData(files: DemoFiles): DemoData {
     issues,
   );
   const manifest = parse(ManifestSchema, files.manifest, 'resumes/manifest.json', issues);
-  if (!employerRows || !jobRows || !curated || !supplied || !manifest) {
+  const postingFile = parse(PostingsSchema, files.postings, 'full-postings.json', issues);
+  if (!employerRows || !jobRows || !curated || !supplied || !manifest || !postingFile) {
     throw new DemoImportError(issues);
   }
   // Records keep their original JSON for `raw`; the parsed copies only drive normalisation.
@@ -242,6 +254,15 @@ export function validateDemoData(files: DemoFiles): DemoData {
     employerById.set(e.id, e);
   });
 
+  const postings = new Map<string, (typeof postingFile.postings)[number]>();
+  postingFile.postings.forEach((p, i) => {
+    if (postings.has(p.id)) issues.push(`full-postings.json: postings.${i}.id: duplicate job id`);
+    if (!jobRows.some((j) => j.id === p.id)) {
+      issues.push(`full-postings.json: postings.${i}.id: no job with this id`);
+    }
+    postings.set(p.id, p);
+  });
+
   const jobIds = new Set<string>();
   const jobs: JobRecord[] = [];
   jobRows.forEach((j, i) => {
@@ -252,15 +273,21 @@ export function validateDemoData(files: DemoFiles): DemoData {
       issues.push(`jobs.json: ${i}.employer_id: no employer with this id`);
       return;
     }
-    const description = files.descriptions.get(j.id);
-    const textSource = description === undefined ? 'fixture_summary' : 'full_description';
+    const posting = postings.get(j.id);
+    if (posting && posting.sourceUrl !== j.source_url) {
+      issues.push(`full-postings.json: ${j.id}: sourceUrl differs from jobs.json source_url`);
+    }
+    // Without retrieved content the abbreviated notes are used, labelled as such.
+    const textSource = posting?.sourceStatus ?? 'fixture_summary';
     const text =
-      description ??
+      posting?.sourceText ??
       [
         `${j.title} at ${employer.name}`,
         'Abbreviated research notes, not the full job description:',
         ...j.requirements_summary,
       ].join('\n');
+    const retrievedOn = posting ? postingFile.retrievedOn : null;
+    const sourceLimitations = posting?.sourceLimitations ?? [];
     const raw = original(files.jobs, [i]);
     jobs.push({
       id: j.id,
@@ -268,13 +295,15 @@ export function validateDemoData(files: DemoFiles): DemoData {
       title: j.title,
       location: j.location ?? null,
       sourceUrl: j.source_url,
-      sourceChecked: j.source_checked ?? null,
+      sourceChecked: posting?.sourceChecked ?? j.source_checked ?? null,
       scenario: j.scenario,
       inScope: j.scenario !== 'out_of_scope_negative_control',
       text,
       textSource,
+      retrievedOn,
+      sourceLimitations,
       raw,
-      recordSha256: hashOf({ raw, text }),
+      recordSha256: hashOf({ raw, text, retrievedOn, sourceLimitations }),
       inputSha256: hashOf({ employerId: j.employer_id, title: j.title, text, textSource }),
     });
   });
@@ -372,8 +401,6 @@ export interface DemoBundle {
   data: DemoData;
   /** PDF bytes by candidate key; every manifest entry exists and matches its recorded hash. */
   pdfs: ReadonlyMap<string, Uint8Array>;
-  /** Saved prepared files by candidate key, already structurally validated. */
-  prepared: ReadonlyMap<string, PreparedCandidate>;
 }
 
 const readJson = (path: string, name: string, issues: string[]): unknown => {
@@ -403,20 +430,17 @@ export function readDemoFiles(root: string): DemoBundle {
       issues,
     ),
     manifest: readJson(at('data/demo/resumes/manifest.json'), 'resumes/manifest.json', issues),
+    postings: readJson(
+      at('data/demo/employers/full-postings.json'),
+      'full-postings.json',
+      issues,
+    ),
   };
   if (issues.length > 0) throw new DemoImportError(issues);
-  const descriptions = new Map<string, string>();
-  for (const job of Array.isArray(files.jobs) ? files.jobs : []) {
-    const id = (job as { id?: unknown }).id;
-    if (typeof id !== 'string' || !/^[\w-]+$/.test(id)) continue;
-    const path = at(`data/demo/employers/descriptions/${id}.txt`);
-    if (existsSync(path)) descriptions.set(id, readFileSync(path, 'utf8'));
-  }
-  const data = validateDemoData({ ...files, descriptions });
+  const data = validateDemoData(files);
 
   const resumeDir = at('data/demo/resumes') + sep;
   const pdfs = new Map<string, Uint8Array>();
-  const prepared = new Map<string, PreparedCandidate>();
   for (const c of data.candidates) {
     if (c.resumeFile) {
       const path = at(c.resumeFile);
@@ -430,17 +454,9 @@ export function readDemoFiles(root: string): DemoBundle {
         } else pdfs.set(c.key, bytes);
       }
     }
-    const preparedPath = at(`data/demo/prepared/candidates/${c.key}.json`);
-    if (existsSync(preparedPath)) {
-      try {
-        prepared.set(c.key, parsePreparedCandidate(JSON.parse(readFileSync(preparedPath, 'utf8'))));
-      } catch {
-        issues.push(`prepared/candidates/${c.key}.json: malformed prepared file`);
-      }
-    }
   }
   if (issues.length > 0) throw new DemoImportError(issues);
-  return { data, pdfs, prepared };
+  return { data, pdfs };
 }
 
 /** Extracts each PDF whose hash differs from the stored one; unchanged files reuse stored text. */
@@ -505,15 +521,6 @@ function resumeFields(extraction: ResumeExtraction | undefined, sha: string | nu
         resumePages: extraction.pages,
         resumeText: null,
       };
-}
-
-function storedPrepared(value: unknown): PreparedCandidate | null {
-  if (value === null) return null;
-  try {
-    return parsePreparedCandidate(value);
-  } catch {
-    return null;
-  }
 }
 
 export async function importDemoData(
@@ -594,6 +601,8 @@ export async function importDemoData(
         sourceChecked: j.sourceChecked,
         scenario: j.scenario,
         inScope: j.inScope,
+        retrievedOn: j.retrievedOn,
+        sourceLimitations: j.sourceLimitations,
         raw: j.raw,
         recordSha256: j.recordSha256,
       };
@@ -661,29 +670,11 @@ export async function importDemoData(
         resumeType: c.resumeType,
         resumeSource: c.resumeSource,
       };
-      // A saved prepared file seeds a database with no preparation for this identity, and replaces
-      // one only when the file covers every current selection and the stored copy does not. A runner
-      // result that is still valid is never overwritten.
-      const disk = bundle.prepared.get(c.key);
-      const current = storedPrepared(old?.prepared ?? null);
-      const covers = (prepared: PreparedCandidate | null) =>
-        effectiveInput({ ...c, resumeText: null }, prepared).kind === 'ready';
-      const useDisk =
-        disk !== undefined &&
-        identityMatches(c, disk) &&
-        (!(current && identityMatches(c, current)) || (covers(disk) && !covers(current)));
-      const serialized = useDisk ? serializePreparedCandidate(disk) : null;
-      const preparedFields =
-        serialized && sha256Hex(serialized) !== old?.preparedSha256
-          ? { prepared: JSON.parse(serialized) as unknown, preparedSha256: sha256Hex(serialized) }
-          : null;
-
       if (!old) {
         await tx.insert(demoCandidates).values({
           key: c.key,
           ...profile,
           ...resumeFields(extractions.get(c.key), c.resumeSha256),
-          ...preparedFields,
         });
         stats.candidates.inserted++;
         continue;
@@ -693,7 +684,7 @@ export async function importDemoData(
         old.organization !== c.organization ||
         canonicalJson(old.resumeSource) !== canonicalJson(c.resumeSource);
       const resumeChanged = old.resumePdfSha256 !== c.resumeSha256;
-      if (!profileChanged && !resumeChanged && !preparedFields) {
+      if (!profileChanged && !resumeChanged) {
         stats.candidates.unchanged++;
         continue;
       }
@@ -703,7 +694,6 @@ export async function importDemoData(
         .set({
           ...(profileChanged && profile),
           ...(resumeChanged && resumeFields(extractions.get(c.key), c.resumeSha256)),
-          ...preparedFields,
           updatedAt: now,
         })
         .where(eq(demoCandidates.key, c.key));

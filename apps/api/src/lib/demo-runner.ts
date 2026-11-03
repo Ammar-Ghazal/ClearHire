@@ -1,11 +1,13 @@
 // Starts demo analyses. A run is claimed before the caller hears 202; every later write is
 // conditional on that run's token, so a stale worker can neither overwrite a newer run nor start a
-// paid request. Assessment locks, caching and spend caps stay in analyzeCandidate/analyzeJob.
+// paid request. Repository code is fetched per run and only held in memory. Assessment locks,
+// caching and spend caps stay in analyzeCandidate/analyzeJob. The worker grades each subject that
+// has no result yet, one at a time; failures are never retried automatically.
 import type { Octokit } from '@octokit/rest';
 import { randomUUID } from 'node:crypto';
-import { and, eq, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, like, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { demoCandidates, demoJobs } from '../db/schema.js';
+import { demoCandidates, demoJobs, skillAssessments } from '../db/schema.js';
 import { env } from '../env.js';
 import {
   analyzeCandidate,
@@ -14,25 +16,16 @@ import {
   recoverStaleAssessments,
   type RunOptions,
 } from './assessments.js';
-import { EvidenceInputError, serializePreparedCandidate } from './candidate-evidence.js';
+import { EvidenceInputError } from './candidate-evidence.js';
 import {
   demoOctokit,
-  effectiveInput,
   PreparationError,
   prepareDemoCandidate,
   RUN_STALE_MS,
-  transientRepos,
 } from './demo-prepare.js';
-import {
-  candidateInput,
-  candidateState,
-  jobInput,
-  jobState,
-  storedPrepared,
-} from './demo-results.js';
+import { candidateInput, candidateState, jobInput, jobState } from './demo-results.js';
 import { IngestError } from './ingest.js';
 import { MuseError } from './muse.js';
-import { sha256Hex } from './packets.js';
 
 /** A refusal the route reports as 404 or 409 with this code. */
 export class RunError extends Error {
@@ -45,8 +38,7 @@ export class RunError extends Error {
       | 'out_of_scope'
       | 'model_not_configured'
       | 'in_progress'
-      | 'previous_failure'
-      | 'preparation_incomplete',
+      | 'previous_failure',
     message: string,
   ) {
     super(message);
@@ -59,6 +51,8 @@ export interface RunDeps {
   /** Passed to analyze*: tests inject fetch, sleep and a budget namespace. */
   runOptions?: RunOptions;
   onError?: (err: unknown) => void;
+  /** Limits the worker to subject keys with this prefix; tests share the demo database. */
+  scope?: string;
 }
 
 export interface Started {
@@ -76,7 +70,7 @@ export function safeErrorCode(err: unknown): string {
     return err.code;
   }
   if (err instanceof PreparationError) return err.code;
-  if (err instanceof EvidenceInputError) return 'invalid_prepared_data';
+  if (err instanceof EvidenceInputError) return 'invalid_evidence';
   return 'internal_error';
 }
 
@@ -109,12 +103,17 @@ export async function recoverStaleRuns(): Promise<void> {
 
 async function claimRun(table: Table, key: string, retry: boolean): Promise<string> {
   const token = randomUUID();
-  const claimable = retry
-    ? or(eq(table.runStatus, 'idle'), eq(table.runStatus, 'failed'))
-    : eq(table.runStatus, 'idle');
+  const waiting = or(eq(table.runStatus, 'idle'), eq(table.runStatus, 'queued'));
+  const claimable = retry ? or(waiting, eq(table.runStatus, 'failed')) : waiting;
   const claimed = await db
     .update(table)
-    .set({ runStatus: 'pending', runId: token, runError: null, runHeartbeatAt: new Date() })
+    .set({
+      runStatus: 'pending',
+      runId: token,
+      runError: null,
+      runHeartbeatAt: new Date(),
+      queuedAt: null,
+    })
     .where(and(eq(keyColumn(table), key), claimable))
     .returning({ runId: table.runId });
   if (claimed.length > 0) return token;
@@ -166,11 +165,20 @@ function runOwned(
 
 class OwnershipLost extends Error {}
 
+/**
+ * `retry` may restart a failed run; `fresh` (an explicit regrade) also skips any saved result for
+ * unchanged inputs, so the subject is fetched and graded again.
+ */
+export interface StartOptions {
+  retry: boolean;
+  fresh?: boolean;
+}
+
 // ---- Candidates ----
 
 export async function startCandidateRun(
   key: string,
-  { retry }: { retry: boolean },
+  { retry, fresh = false }: StartOptions,
   deps: RunDeps = {},
 ): Promise<Started> {
   const [row] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
@@ -187,43 +195,22 @@ export async function startCandidateRun(
   requireModel(deps);
   await recoverStaleAssessments({ kind: 'candidate', subjectKind: 'demo', subjectKey: key });
   await recoverRun(demoCandidates, key);
+  if (!fresh && (await candidateState(row, deps.runOptions)).freshness.state === 'current') {
+    return { result: 'cached' };
+  }
 
-  const state = await candidateState(row, deps.runOptions);
-  const ready = state.input?.kind === 'ready' ? state.input.prepared : null;
-  const refetch = retry && ready !== null && transientRepos(ready).length > 0;
-  if (state.freshness.state === 'current' && !refetch) return { result: 'cached' };
-
-  const token = await claimRun(demoCandidates, key, retry);
+  const token = await claimRun(demoCandidates, key, retry || fresh);
   const done = runOwned(demoCandidates, key, token, deps, async (owned) => {
-    const [fresh] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
-    if (!fresh) throw new RunError('not_found', 'No demo candidate with this key');
-    const candidate = candidateInput(fresh);
-    const existing = storedPrepared(fresh);
-    let current = effectiveInput(candidate, existing);
-    const transient =
-      retry && current.kind === 'ready' && transientRepos(current.prepared).length > 0;
-    if (current.kind !== 'ready' || transient) {
-      const prepared = await prepareDemoCandidate(
-        (deps.octokit ?? demoOctokit)(),
-        candidate,
-        existing,
-        { refetchTransient: retry },
-      );
-      const serialized = serializePreparedCandidate(prepared);
-      const stored = await db
-        .update(demoCandidates)
-        .set({ prepared: JSON.parse(serialized), preparedSha256: sha256Hex(serialized) })
-        .where(and(eq(demoCandidates.key, key), eq(demoCandidates.runId, token)))
-        .returning({ key: demoCandidates.key });
-      if (stored.length === 0) throw new OwnershipLost();
-      current = effectiveInput(candidate, prepared);
-      if (current.kind !== 'ready') {
-        throw new RunError('preparation_incomplete', 'Preparation is incomplete');
-      }
-    }
+    const [current] = await db.select().from(demoCandidates).where(eq(demoCandidates.key, key));
+    if (!current) throw new RunError('not_found', 'No demo candidate with this key');
+    // Held only in memory for this run; never written anywhere.
+    const prepared = await prepareDemoCandidate(
+      (deps.octokit ?? demoOctokit)(),
+      candidateInput(current),
+    );
     // A worker whose claim was recovered or superseded must not start a paid request.
     if (!(await owned())) throw new OwnershipLost();
-    await analyzeCandidate(current.prepared, { ...deps.runOptions, retryFailed: retry });
+    await analyzeCandidate(prepared, { ...deps.runOptions, retryFailed: retry || fresh, fresh });
   });
   return { result: 'started', done };
 }
@@ -232,7 +219,7 @@ export async function startCandidateRun(
 
 export async function startJobRun(
   id: string,
-  { retry }: { retry: boolean },
+  { retry, fresh = false }: StartOptions,
   deps: RunDeps = {},
 ): Promise<Started> {
   const [row] = await db.select().from(demoJobs).where(eq(demoJobs.id, id));
@@ -241,20 +228,135 @@ export async function startJobRun(
   requireModel(deps);
   await recoverStaleAssessments({ kind: 'job', subjectKind: 'demo', subjectKey: id });
   await recoverRun(demoJobs, id);
-
-  if ((await jobState(row, deps.runOptions)).freshness.state === 'current') {
+  if (!fresh && (await jobState(row, deps.runOptions)).freshness.state === 'current') {
     return { result: 'cached' };
   }
 
-  const token = await claimRun(demoJobs, id, retry);
+  const token = await claimRun(demoJobs, id, retry || fresh);
   const done = runOwned(demoJobs, id, token, deps, async (owned) => {
-    const [fresh] = await db.select().from(demoJobs).where(eq(demoJobs.id, id));
-    if (!fresh) throw new RunError('not_found', 'No demo job with this id');
+    const [current] = await db.select().from(demoJobs).where(eq(demoJobs.id, id));
+    if (!current) throw new RunError('not_found', 'No demo job with this id');
     if (!(await owned())) throw new OwnershipLost();
     await analyzeJob(
-      { ...jobInput(fresh), dataUse: 'approved_public_demo' },
-      { ...deps.runOptions, retryFailed: retry },
+      { ...jobInput(current), dataUse: 'approved_public_demo' },
+      { ...deps.runOptions, retryFailed: retry || fresh, fresh },
     );
   });
   return { result: 'started', done };
+}
+
+// ---- Analysis worker ----
+
+const SAVED_STATUSES = sql`('complete', 'partial', 'no_attributed_evidence')`;
+export const WORKER_INTERVAL_MS = 10_000;
+
+/**
+ * Queues every subject that has never been graded: in-scope jobs with retrieved posting text, and
+ * complete candidate profiles without a result from a live run. Outdated or failed subjects wait
+ * for an explicit regrade, so nothing is re-sent automatically.
+ */
+async function enqueueUngraded(deps: RunDeps): Promise<void> {
+  const queued = { runStatus: 'queued' as const, queuedAt: new Date() };
+  const inScope = (table: Table) =>
+    deps.scope ? like(keyColumn(table), `${deps.scope}%`) : undefined;
+  await db
+    .update(demoJobs)
+    .set(queued)
+    .where(
+      and(
+        inScope(demoJobs),
+        eq(demoJobs.inScope, true),
+        eq(demoJobs.runStatus, 'idle'),
+        // Abbreviated notes are never graded automatically.
+        ne(demoJobs.textSource, 'fixture_summary'),
+        sql`not exists (select 1 from ${skillAssessments} where ${skillAssessments.kind} = 'job'
+          and ${skillAssessments.subjectKind} = 'demo' and ${skillAssessments.subjectKey} = ${demoJobs.id}
+          and ${skillAssessments.status} in ${SAVED_STATUSES})`,
+      ),
+    );
+  // Unauthenticated GitHub allows 60 requests an hour, too few for a repository fetch.
+  if (!deps.octokit && !env.GITHUB_DEMO_TOKEN) return;
+  // Legacy results have no manifest, so those candidates are graded live once.
+  await db
+    .update(demoCandidates)
+    .set(queued)
+    .where(
+      and(
+        inScope(demoCandidates),
+        eq(demoCandidates.organization, false),
+        eq(demoCandidates.runStatus, 'idle'),
+        sql`jsonb_array_length(${demoCandidates.repositories}) > 0`,
+        sql`not exists (select 1 from ${skillAssessments} where ${skillAssessments.kind} = 'candidate'
+          and ${skillAssessments.subjectKind} = 'demo' and ${skillAssessments.subjectKey} = ${demoCandidates.key}
+          and ${skillAssessments.status} in ${SAVED_STATUSES}
+          and ${skillAssessments.inputManifest} is not null)`,
+      ),
+    );
+}
+
+/** Runs one queued subject to completion; jobs first, since they are small. */
+async function runNextQueued(deps: RunDeps): Promise<boolean> {
+  const queuedIn = (table: Table) =>
+    and(
+      eq(table.runStatus, 'queued'),
+      deps.scope ? like(keyColumn(table), `${deps.scope}%`) : undefined,
+    );
+  const [job] = await db
+    .select({ id: demoJobs.id })
+    .from(demoJobs)
+    .where(queuedIn(demoJobs))
+    .orderBy(asc(demoJobs.queuedAt))
+    .limit(1);
+  const [candidate] = job
+    ? []
+    : await db
+        .select({ key: demoCandidates.key })
+        .from(demoCandidates)
+        .where(queuedIn(demoCandidates))
+        .orderBy(asc(demoCandidates.queuedAt))
+        .limit(1);
+  const next = job
+    ? { table: demoJobs, key: job.id, start: () => startJobRun(job.id, { retry: false }, deps) }
+    : candidate
+      ? {
+          table: demoCandidates,
+          key: candidate.key,
+          start: () => startCandidateRun(candidate.key, { retry: false }, deps),
+        }
+      : null;
+  if (!next) return false;
+  const stillQueued = and(eq(keyColumn(next.table), next.key), eq(next.table.runStatus, 'queued'));
+  try {
+    const run = await next.start();
+    if (run.done) await run.done;
+    else await db.update(next.table).set({ runStatus: 'idle', queuedAt: null }).where(stillQueued);
+  } catch (err) {
+    // Refused before a claim: the subject leaves the queue with the reason.
+    deps.onError?.(err);
+    await db
+      .update(next.table)
+      .set({ runStatus: 'failed', runError: safeErrorCode(err), queuedAt: null })
+      .where(stillQueued);
+  }
+  return true;
+}
+
+/** One worker step: queue ungraded subjects, then grade the oldest queued one. */
+export async function analysisTick(deps: RunDeps = {}): Promise<boolean> {
+  if (!(deps.runOptions?.model ?? env.META_MODEL) || !env.META_API_KEY) return false;
+  await enqueueUngraded(deps);
+  return runNextQueued(deps);
+}
+
+/** Starts the in-process worker; returns a function that stops it. */
+export function startAnalysisWorker(deps: RunDeps = {}): () => void {
+  let busy = false;
+  const timer = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    void analysisTick(deps)
+      .catch((err: unknown) => deps.onError?.(err))
+      .finally(() => (busy = false));
+  }, WORKER_INTERVAL_MS);
+  return () => clearInterval(timer);
 }

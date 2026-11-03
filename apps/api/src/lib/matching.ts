@@ -67,10 +67,10 @@ export function matchAssessments(
     status: 'scored',
     compatibility: (100 * earned) / total,
     evidenceCoverage: (100 * covered) / total,
-    // An abbreviated fixture summary is not the full posting, so its requirements may be missing.
+    // Research notes or a paraphrase are not the full posting, so requirements may be missing.
     provisional:
       candidate.status === 'partial' ||
       isIncomplete(candidate.coverage) ||
-      job.textSource === 'fixture_summary',
+      job.textSource !== 'full_description',
   };
 }

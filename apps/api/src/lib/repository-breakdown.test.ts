@@ -1,17 +1,21 @@
 import type { CandidateAssessment, EvidenceRef, Freshness } from '@clearhire/shared';
 import { describe, expect, it } from 'vitest';
-import { fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
+import type { InputManifest } from '../db/schema.js';
 import { buildRepositoryBreakdown, evidenceUrl } from './repository-breakdown.js';
 
 const ONE = { owner: 'octo', repo: 'one', pinnedSha: 'snap-one' };
 const TWO = { owner: 'octo', repo: 'two', pinnedSha: 'snap-two' };
 const GONE = { owner: 'octo', repo: 'gone', pinnedSha: null };
 
-const prepared = fixtureCandidate([
-  fixtureRepo('one', [{ path: 'src/a.ts', content: sourceLines(10) }], []),
-  fixtureRepo('two', [{ path: 'src/b.ts', content: sourceLines(10) }], []),
-  { owner: 'octo', repo: 'gone', unavailable: 'not_found' },
-]);
+// What the graded run fetched: default-branch heads, never the recorded pins.
+const manifest: InputManifest = {
+  repos: [
+    { repo: 'octo/one', commitSha: 'head-one', unavailable: null },
+    { repo: 'octo/two', commitSha: 'head-two', unavailable: null },
+    { repo: 'octo/gone', commitSha: null, unavailable: 'not_found' },
+  ],
+  resumeSha256: null,
+};
 
 const ref = (repo: string, path: string, startLine = 1): EvidenceRef => ({
   ref: 'a1',
@@ -98,8 +102,7 @@ const fresh = (state: Freshness['state'], errorCode: string | null = null): Fres
 const build = (input: Partial<Parameters<typeof buildRepositoryBreakdown>[0]> = {}) =>
   buildRepositoryBreakdown({
     repositories: [ONE, TWO, GONE],
-    prepared,
-    missing: [],
+    manifest,
     freshness: fresh('current'),
     assessment: assessment(),
     ...input,
@@ -108,7 +111,7 @@ const build = (input: Partial<Parameters<typeof buildRepositoryBreakdown>[0]> = 
 describe('buildRepositoryBreakdown', () => {
   it('shows each repository only its own findings and evidence', () => {
     const [one, two] = build();
-    expect(one).toMatchObject({ state: 'analyzed', commitSha: 'snap-one' });
+    expect(one).toMatchObject({ state: 'analyzed', commitSha: 'head-one', pinnedSha: 'snap-one' });
     expect(one!.functionality[0]!.evidence.map((e) => e.path)).toEqual(['src/a.ts']);
     expect(one!.coverage).toMatchObject({ sampled: true, omittedRanges: 1, attributionGaps: [] });
     // octo/two has no finding of its own, but a skill with evidence there.
@@ -138,10 +141,11 @@ describe('buildRepositoryBreakdown', () => {
     expect(two).toMatchObject({ state: 'not_described', skills: [] });
   });
 
-  it('keeps unavailable and unprepared repositories visible as incomplete', () => {
-    const [one, , gone] = build({ missing: [ONE] });
-    expect(one).toMatchObject({ state: 'not_prepared', commitSha: null, skills: [] });
-    expect(gone).toMatchObject({ state: 'unavailable', reason: 'not_found' });
+  it('keeps unavailable and newly selected repositories visible as incomplete', () => {
+    const NEW = { owner: 'octo', repo: 'new', pinnedSha: null };
+    const [, , gone, added] = build({ repositories: [ONE, TWO, GONE, NEW] });
+    expect(gone).toMatchObject({ state: 'unavailable', reason: 'not_found', commitSha: null });
+    expect(added).toMatchObject({ state: 'not_analyzed', commitSha: null, skills: [] });
   });
 
   it.each([

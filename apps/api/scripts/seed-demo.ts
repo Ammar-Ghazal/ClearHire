@@ -1,33 +1,30 @@
-// Exports or loads the demo seed: imported fixtures plus their saved analyses, so the demo runs on
-// a fresh database without GitHub, Muse, the gitignored prepared files or the résumé PDFs.
+// Exports or loads the demo seed: imported fixtures, their saved analyses and each seeker's recorded
+// analysis spend, so the demo runs on a fresh database without GitHub, Muse or the résumé PDFs.
 //   pnpm --filter @clearhire/api demo:seed export   write data/demo/seed/demo-seed.json from this database
 //   pnpm --filter @clearhire/api demo:seed load     upsert the fixtures and add the saved analyses
-// Loading never calls GitHub or Muse and never touches relationships, offers or other workflow rows.
+// Every record passes an explicit field allowlist: export drops anything else, and load rejects a
+// seed with any other field, so repository code or raw model output can never be restored.
+// Loading never calls GitHub or Muse, never lowers recorded spend and never touches relationships,
+// offers or other workflow rows.
+import { CandidateAssessmentSchema, JobAssessmentSchema } from '@clearhire/shared';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { and, eq, inArray, or } from 'drizzle-orm';
 import { db, pool } from '../src/db/client.js';
-import { demoCandidates, demoEmployers, demoJobs, skillAssessments } from '../src/db/schema.js';
+import {
+  demoCandidates,
+  demoEmployers,
+  demoJobs,
+  museSpendBudgets,
+  skillAssessments,
+} from '../src/db/schema.js';
+import { SEEKER_SPEND_CAP_USD } from '../src/lib/assessments.js';
+import { SeedSchema } from '../src/lib/demo-seed.js';
 
 const FILE = fileURLToPath(new URL('../../../data/demo/seed/demo-seed.json', import.meta.url));
 const SAVED = ['complete', 'partial', 'no_attributed_evidence'] as const;
-
-type Employer = typeof demoEmployers.$inferInsert;
-type Job = typeof demoJobs.$inferInsert;
-type Candidate = typeof demoCandidates.$inferInsert;
-type Assessment = typeof skillAssessments.$inferInsert;
-interface Seed {
-  employers: Employer[];
-  jobs: Job[];
-  candidates: Candidate[];
-  assessments: Assessment[];
-}
-
-// Run state and timestamps are local to one database; a loaded subject starts idle.
-const local = ['runId', 'runStatus', 'runError', 'runHeartbeatAt', 'updatedAt'] as const;
-const strip = <T extends object>(row: T) =>
-  Object.fromEntries(Object.entries(row).filter(([k]) => !(local as readonly string[]).includes(k)));
+const SEEKER_SCOPE = 'subject:candidate:demo:';
 
 async function exportSeed() {
   const employers = await db.select().from(demoEmployers).orderBy(demoEmployers.id);
@@ -53,33 +50,39 @@ async function exportSeed() {
       ),
     )
     .orderBy(skillAssessments.kind, skillAssessments.subjectKey, skillAssessments.completedAt);
-  const seed = {
-    employers: employers.map(strip),
-    jobs: jobs.map(strip),
-    candidates: candidates.map(strip),
-    // The id is local; the cache key identifies a saved analysis.
-    assessments: assessments.map(({ id: _id, ...a }) => a),
-  };
+  const spend = await db
+    .select({ scope: museSpendBudgets.scope, spentMicroUsd: museSpendBudgets.spentMicroUsd })
+    .from(museSpendBudgets)
+    .where(like(museSpendBudgets.scope, `${SEEKER_SCOPE}%`))
+    .orderBy(museSpendBudgets.scope);
+  // Non-strict parsing keeps only allowlisted fields: run state, ids and timestamps are local.
+  const seed = SeedSchema.strip().parse({
+    employers: employers.map((e) => SeedSchema.shape.employers.element.strip().parse(e)),
+    jobs: jobs.map((j) => SeedSchema.shape.jobs.element.strip().parse(j)),
+    candidates: candidates.map((c) => SeedSchema.shape.candidates.element.strip().parse(c)),
+    assessments: assessments.map((a) => SeedSchema.shape.assessments.element.strip().parse(a)),
+    spend,
+  });
   mkdirSync(dirname(FILE), { recursive: true });
   writeFileSync(FILE, `${JSON.stringify(seed, null, 1)}\n`);
   const count = (kind: string) => assessments.filter((a) => a.kind === kind).length;
   console.log(
     `Wrote ${FILE}: ${employers.length} employers, ${jobs.length} jobs, ` +
-      `${candidates.length} candidates, ${count('candidate')} candidate and ${count('job')} job analyses.`,
+      `${candidates.length} candidates, ${count('candidate')} candidate and ${count('job')} job ` +
+      `analyses, ${spend.length} seeker spend record(s).`,
   );
 }
 
-const dates = (a: Assessment): Assessment => ({
-  ...a,
-  startedAt: a.startedAt && new Date(a.startedAt),
-  heartbeatAt: a.heartbeatAt && new Date(a.heartbeatAt),
-  completedAt: a.completedAt && new Date(a.completedAt),
-});
-
 async function loadSeed() {
-  const seed = JSON.parse(readFileSync(FILE, 'utf8')) as Seed;
+  const parsed = SeedSchema.safeParse(JSON.parse(readFileSync(FILE, 'utf8')));
+  if (!parsed.success) {
+    const fields = parsed.error.issues.map((i) => i.path.join('.') || '(root)');
+    throw new Error(`Seed rejected (unexpected or invalid fields): ${fields.slice(0, 5).join(', ')}`);
+  }
+  const seed = parsed.data;
   const added = await db.transaction(async (tx) => {
     const now = new Date();
+    const idle = { runStatus: 'idle' as const, runId: null, runError: null, queuedAt: null };
     for (const e of seed.employers) {
       await tx.insert(demoEmployers).values(e).onConflictDoUpdate({
         target: demoEmployers.id,
@@ -89,26 +92,55 @@ async function loadSeed() {
     for (const j of seed.jobs) {
       await tx.insert(demoJobs).values(j).onConflictDoUpdate({
         target: demoJobs.id,
-        set: { ...j, runStatus: 'idle', runId: null, runError: null, updatedAt: now },
+        set: { ...j, ...idle, updatedAt: now },
       });
     }
     for (const c of seed.candidates) {
       await tx.insert(demoCandidates).values(c).onConflictDoUpdate({
         target: demoCandidates.key,
-        set: { ...c, runStatus: 'idle', runId: null, runError: null, updatedAt: now },
+        set: { ...c, ...idle, updatedAt: now },
       });
     }
-    if (seed.assessments.length === 0) return 0;
-    const inserted = await tx
-      .insert(skillAssessments)
-      .values(seed.assessments.map(dates))
-      .onConflictDoNothing({ target: skillAssessments.cacheKey })
-      .returning({ id: skillAssessments.id });
-    return inserted.length;
+    for (const s of seed.spend) {
+      await tx
+        .insert(museSpendBudgets)
+        .values({ ...s, capMicroUsd: Math.round(SEEKER_SPEND_CAP_USD * 1e6) })
+        .onConflictDoUpdate({
+          target: museSpendBudgets.scope,
+          set: {
+            spentMicroUsd: sql`greatest(${museSpendBudgets.spentMicroUsd}, excluded.spent_micro_usd)`,
+            updatedAt: now,
+          },
+        });
+    }
+    let inserted = 0;
+    for (const a of seed.assessments) {
+      // Each run is its own row; the same saved run is never added twice.
+      const [existing] = await tx
+        .select({ id: skillAssessments.id })
+        .from(skillAssessments)
+        .where(
+          and(
+            eq(skillAssessments.kind, a.kind),
+            eq(skillAssessments.subjectKind, a.subjectKind),
+            eq(skillAssessments.subjectKey, a.subjectKey),
+            eq(skillAssessments.cacheKey, a.cacheKey),
+            a.completedAt === null
+              ? sql`${skillAssessments.completedAt} is null`
+              : eq(skillAssessments.completedAt, a.completedAt),
+          ),
+        );
+      if (existing) continue;
+      const schema = a.kind === 'candidate' ? CandidateAssessmentSchema : JobAssessmentSchema;
+      await tx.insert(skillAssessments).values({ ...a, result: schema.parse(a.result) });
+      inserted++;
+    }
+    return inserted;
   });
   console.log(
     `Loaded ${seed.employers.length} employers, ${seed.jobs.length} jobs, ` +
-      `${seed.candidates.length} candidates; added ${added} of ${seed.assessments.length} saved analyses.`,
+      `${seed.candidates.length} candidates, ${seed.spend.length} seeker spend record(s); ` +
+      `added ${added} of ${seed.assessments.length} saved analyses.`,
   );
 }
 
@@ -120,6 +152,9 @@ try {
     console.error('Usage: demo:seed export|load');
     process.exitCode = 1;
   }
+} catch (err) {
+  console.error(err instanceof Error ? err.message : 'Seed command failed');
+  process.exitCode = 1;
 } finally {
   await pool.end();
 }

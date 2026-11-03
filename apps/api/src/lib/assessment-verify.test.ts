@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { verifyCandidate, verifyJob } from './assessment-verify.js';
+import { scrubQuotedSource, verifyCandidate, verifyJob } from './assessment-verify.js';
 import { buildCandidateEvidence } from './candidate-evidence.js';
 import { fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
 import type { CandidateOutput, JobOutput } from './muse.js';
@@ -233,5 +233,34 @@ describe('verifyJob', () => {
     );
     expect(result).toMatchObject({ inScope: false, outOfScopeReason: 'Nursing role' });
     expect(result.requirements).toHaveLength(2);
+  });
+});
+
+describe('scrubQuotedSource', () => {
+  it('removes verbatim evidence lines from model prose before anything is stored', () => {
+    const long = fixtureRepo(
+      'long',
+      [{ path: 'src/l.ts', content: sourceLines(10, 'aDeliberatelyLongIdentifier') }],
+      [{ sha: 'c1', path: 'src/l.ts', start: 1, end: 5 }],
+    );
+    const ev = buildCandidateEvidence(fixtureCandidate([long]), { evidenceChars: 1_000_000 });
+    const quoted = 'export const aDeliberatelyLongIdentifier3 = 3;';
+    const output: CandidateOutput = {
+      repositories: [
+        {
+          repo: 'r1',
+          functionality: [{ summary: `Defines ${quoted}`, refs: ['a1'] }],
+          quality_observations: [{ kind: 'strength', observation: quoted, refs: ['a1'] }],
+          limitations: [`See ${quoted}`],
+          contribution: { summary: 'Wrote constants', refs: ['a1'] },
+        },
+      ],
+      skills: [{ ...skill('unit-testing', ['a1']), justification: `Because ${quoted}` }],
+    };
+    const scrubbed = scrubQuotedSource(verifyCandidate(output, ev, META), ev);
+    const text = JSON.stringify(scrubbed);
+    expect(text).not.toContain(quoted);
+    expect(scrubbed.skills[0]!.rationale).toBe('Because [source excerpt removed]');
+    expect(scrubbed.repositories[0]!.contribution!.summary).toBe('Wrote constants');
   });
 });

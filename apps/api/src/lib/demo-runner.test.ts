@@ -1,8 +1,8 @@
+import type { Octokit } from '@octokit/rest';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fixtureCandidate, fixtureRepo, sourceLines } from './candidate-fixtures.js';
-import type { PreparedCandidate } from './candidate-evidence.js';
+import { fixtureRepo, sourceLines } from './candidate-fixtures.js';
 
 // Real Postgres; GitHub and Muse are mocked. Configuration is mutable so a test can unset it.
 const config = vi.hoisted(() => ({
@@ -18,22 +18,32 @@ vi.mock('../env.js', async (importOriginal) => {
   return { ...actual, env };
 });
 
-const fetched: string[] = [];
+// Repository code that must never be persisted anywhere.
+const SENTINEL = 'const CLEARHIRE_SENTINEL = "this repository line must never be stored";';
+/** `plain-*` repositories have no lines attributed to the candidate. */
+const repoFixture = (repo: string) =>
+  fixtureRepo(
+    repo,
+    [{ path: 'src/a.ts', content: `${SENTINEL}\n${sourceLines(29)}` }],
+    repo.startsWith('plain') ? [] : [{ sha: `${repo}-c1`, path: 'src/a.ts', start: 1, end: 5 }],
+  );
+
+const fetched: { repo: string; ref?: string }[] = [];
 let gate: Promise<void> | null = null;
 vi.mock('./ingest.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./ingest.js')>();
   return {
     ...actual,
-    ingestRepo: vi.fn(async (_o: unknown, { repo }: { repo: string }) => {
-      fetched.push(repo);
+    ingestRepo: vi.fn(async (_o: unknown, { repo, ref }: { repo: string; ref?: string }) => {
+      fetched.push({ repo, ref });
       if (gate) await gate;
-      return fixtureRepo(repo, [{ path: 'src/b.ts', content: sourceLines(5) }], []).snapshot;
+      return repoFixture(repo).snapshot;
     }),
   };
 });
 vi.mock('./contributions.js', () => ({
   collectContributions: vi.fn(
-    async (_o: unknown, { repo }: { repo: string }) => fixtureRepo(repo, [], []).collected,
+    async (_o: unknown, { repo }: { repo: string }) => repoFixture(repo).collected,
   ),
 }));
 
@@ -48,9 +58,10 @@ const {
   museSpendBudgets,
   skillAssessments,
 } = schema;
-const { serializePreparedCandidate } = await import('./candidate-evidence.js');
 const { setPriorityOverride } = await import('./assessments.js');
-const { RunError, startCandidateRun, startJobRun } = await import('./demo-runner.js');
+const { analysisTick, RunError, startCandidateRun, startJobRun } = await import(
+  './demo-runner.js'
+);
 const { candidateState, demoMatch, jobState } = await import('./demo-results.js');
 
 const RUN = `test-${randomUUID()}`;
@@ -73,7 +84,8 @@ const CANDIDATE_OUTPUT = {
       skill_id: 'unit-testing',
       level: 1,
       confidence: 'high',
-      justification: 'Tests',
+      // A model quoting source: the line is removed before anything is stored.
+      justification: `Tests, as in ${SENTINEL}`,
       evidence_refs: ['a1'],
       supporting_tags: [],
     },
@@ -102,35 +114,33 @@ function completion(content: unknown) {
     { status: 200 },
   );
 }
-const museFetch = (...outputs: unknown[]) =>
-  vi.fn(async () => {
-    const next = outputs.shift();
-    if (next === undefined) throw new Error('Unexpected Muse request');
-    return completion(next);
+/** Answers each request by its kind, so call order between subjects does not matter. */
+const museFetch = (limit = Infinity) => {
+  let calls = 0;
+  return vi.fn(async (_url: string, init: RequestInit) => {
+    if (++calls > limit) throw new Error('Unexpected Muse request');
+    const body = JSON.parse(init.body as string) as { response_format: { json_schema: { name: string } } };
+    return completion(
+      body.response_format.json_schema.name === 'job_assessment' ? JOB_OUTPUT : CANDIDATE_OUTPUT,
+    );
   });
+};
 
-const attributed = (name: string) =>
-  fixtureRepo(
-    name,
-    [{ path: 'src/a.ts', content: sourceLines(30) }],
-    [{ sha: `${name}-c1`, path: 'src/a.ts', start: 1, end: 5 }],
-  );
-const sel = (name: string) => ({ owner: 'octo', repo: name, pinnedSha: `snap-${name}` });
+const octokit = (type = 'User') =>
+  ({
+    rest: {
+      users: {
+        getByUsername: vi.fn(async () => ({ data: { id: 101, login: 'cand', type } })),
+      },
+    },
+  }) as unknown as Octokit;
+const sel = (name: string) => ({ owner: 'octo', repo: name, pinnedSha: `pin-${name}` });
 
 async function seedCandidate(
   suffix: string,
-  opts: {
-    repos?: PreparedCandidate['repos'];
-    selected?: string[];
-    resume?: string;
-    organization?: boolean;
-  } = {},
+  opts: { selected?: string[]; resume?: string; organization?: boolean } = {},
 ) {
   const key = `${RUN}-${suffix}`;
-  const prepared = fixtureCandidate(opts.repos ?? [attributed('one')], {
-    subject: { kind: 'demo', key },
-  });
-  const serialized = serializePreparedCandidate(prepared);
   await db.insert(demoCandidates).values({
     key,
     name: suffix,
@@ -141,15 +151,17 @@ async function seedCandidate(
     verification: {},
     raw: {},
     profileSha256: 'p',
-    prepared: JSON.parse(serialized),
-    preparedSha256: 'x',
     ...(opts.resume && { resumeStatus: 'extracted' as const, resumeText: opts.resume }),
   });
   return key;
 }
 
-async function seedJob(suffix: string, inScope = true) {
+async function seedJob(
+  suffix: string,
+  opts: { inScope?: boolean; textSource?: 'full_description' | 'fixture_summary' } = {},
+) {
   const id = `${RUN}-${suffix}`;
+  const inScope = opts.inScope ?? true;
   await db.insert(demoJobs).values({
     id,
     employerId: EMPLOYER,
@@ -157,8 +169,8 @@ async function seedJob(suffix: string, inScope = true) {
     sourceUrl: 'https://acme.test',
     scenario: inScope ? 'possible_skill_overlap' : 'out_of_scope_negative_control',
     inScope,
-    text: 'Write unit tests and design APIs',
-    textSource: 'fixture_summary',
+    text: `Write unit tests and design APIs (${suffix})`,
+    textSource: opts.textSource ?? 'full_description',
     raw: {},
     recordSha256: 'r',
     inputSha256: 'i',
@@ -169,7 +181,9 @@ async function seedJob(suffix: string, inScope = true) {
 const candidate = async (key: string) =>
   (await db.select().from(demoCandidates).where(eq(demoCandidates.key, key)))[0]!;
 const job = async (id: string) => (await db.select().from(demoJobs).where(eq(demoJobs.id, id)))[0]!;
-const options = (fetchMock: ReturnType<typeof museFetch>) => ({
+const deps = (fetchMock: ReturnType<typeof museFetch>, type?: string) => ({
+  octokit: () => octokit(type),
+  scope: RUN,
   runOptions: {
     budgetNamespace: NS,
     sleep: async () => {},
@@ -184,6 +198,11 @@ const paidCalls = async () =>
       .innerJoin(skillAssessments, eq(museCalls.assessmentId, skillAssessments.id))
       .where(like(skillAssessments.subjectKey, `${RUN}%`))
   )[0]!.n;
+const runs = async (key: string) =>
+  db
+    .select()
+    .from(skillAssessments)
+    .where(and(eq(skillAssessments.kind, 'candidate'), eq(skillAssessments.subjectKey, key)));
 
 beforeEach(() => {
   fetched.length = 0;
@@ -216,69 +235,84 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     });
   });
 
-  it('reuses a valid preparation, completes cleanly, then serves the cached result', async () => {
-    const key = await seedCandidate('reuse');
-    const fetchMock = museFetch(CANDIDATE_OUTPUT);
-    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
-    const run = await startCandidateRun(key, { retry: false }, options(fetchMock));
+  it('fetches every selection at its default-branch head, grades it, then serves the result', async () => {
+    const key = await seedCandidate('live', { selected: ['one', 'two'] });
+    const fetchMock = museFetch();
+    const run = await startCandidateRun(key, { retry: false }, deps(fetchMock));
     expect(run.result).toBe('started');
     await run.done;
-    expect(clearSpy).toHaveBeenCalled();
-    clearSpy.mockRestore();
-    expect(fetched).toEqual([]);
+    expect(fetched).toEqual([
+      { repo: 'one', ref: undefined },
+      { repo: 'two', ref: undefined },
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await candidate(key)).toMatchObject({ runStatus: 'idle', runError: null });
-    expect((await candidateState(await candidate(key))).freshness.state).toBe('current');
-
-    const again = await startCandidateRun(key, { retry: false }, options(fetchMock));
-    expect(again).toEqual({ result: 'cached' });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('fetches only the selection that is missing from the preparation', async () => {
-    const key = await seedCandidate('partial', { selected: ['one', 'two'] });
-    expect((await candidateState(await candidate(key))).freshness.state).toBe('not_prepared');
-    const run = await startCandidateRun(
-      key,
-      { retry: false },
-      options(museFetch(CANDIDATE_OUTPUT)),
-    );
-    await run.done;
-    expect(fetched).toEqual(['two']);
     const state = await candidateState(await candidate(key));
     expect(state.freshness.state).toBe('current');
-  });
-
-  it('re-fetches transient GitHub failures on Retry, even when the result is current', async () => {
-    const key = await seedCandidate('transient', {
+    expect(state.assessment!.skills.map((s) => s.skillId)).toEqual(['unit-testing']);
+    expect(state.manifest).toEqual({
       repos: [
-        attributed('one'),
-        { owner: 'octo', repo: 'two', unavailable: 'rate_limited', requestedSha: 'snap-two' },
+        { repo: 'octo/one', commitSha: 'snap-one', unavailable: null },
+        { repo: 'octo/two', commitSha: 'snap-two', unavailable: null },
       ],
-      selected: ['one', 'two'],
+      resumeSha256: null,
     });
-    const fetchMock = museFetch(CANDIDATE_OUTPUT, CANDIDATE_OUTPUT);
-    await (
-      await startCandidateRun(key, { retry: false }, options(fetchMock))
-    ).done;
-    expect(fetched).toEqual([]);
-    expect(await startCandidateRun(key, { retry: false }, options(fetchMock))).toEqual({
+
+    expect(await startCandidateRun(key, { retry: false }, deps(fetchMock))).toEqual({
       result: 'cached',
     });
-    const retried = await startCandidateRun(key, { retry: true }, options(fetchMock));
-    expect(retried.result).toBe('started');
-    await retried.done;
-    expect(fetched).toEqual(['two']);
+    expect(fetched).toHaveLength(2);
+  });
+
+  it('never persists repository code, in any table', async () => {
+    const tables = [
+      'demo_candidates',
+      'demo_jobs',
+      'skill_assessments',
+      'muse_calls',
+      'muse_spend_budgets',
+    ];
+    for (const table of tables) {
+      const [row] = await db.execute<{ n: number }>(
+        sql.raw(
+          `select count(*)::int as n from ${table} t where row_to_json(t)::text like '%CLEARHIRE_SENTINEL%'`,
+        ),
+      ).then((r) => r.rows);
+      expect({ table, found: row!.n }).toEqual({ table, found: 0 });
+    }
+    const [result] = await runs(`${RUN}-live`);
+    expect(JSON.stringify(result!.result)).toContain('[source excerpt removed]');
+  });
+
+  it('regrades fresh on explicit request: fetches the code again and makes a new call', async () => {
+    const key = await seedCandidate('regrade');
+    const fetchMock = museFetch();
+    await (await startCandidateRun(key, { retry: false }, deps(fetchMock))).done;
+    const regrade = await startCandidateRun(key, { retry: true, fresh: true }, deps(fetchMock));
+    expect(regrade.result).toBe('started');
+    await regrade.done;
+    expect(fetched.map((f) => f.repo)).toEqual(['one', 'one']);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await runs(key)).toHaveLength(2);
+
+    const id = await seedJob('regrade');
+    await (await startJobRun(id, { retry: false }, deps(fetchMock))).done;
+    expect(await startJobRun(id, { retry: false }, deps(fetchMock))).toEqual({ result: 'cached' });
+    await (await startJobRun(id, { retry: false, fresh: true }, deps(fetchMock))).done;
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('starts one run for concurrent requests', async () => {
     const key = await seedCandidate('concurrent');
-    const fetchMock = museFetch(CANDIDATE_OUTPUT);
+    const fetchMock = museFetch();
+    // The first run holds at the fetch, so the two requests always overlap.
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
     const results = await Promise.allSettled([
-      startCandidateRun(key, { retry: false }, options(fetchMock)),
-      startCandidateRun(key, { retry: false }, options(fetchMock)),
+      startCandidateRun(key, { retry: true, fresh: true }, deps(fetchMock)),
+      startCandidateRun(key, { retry: true, fresh: true }, deps(fetchMock)),
     ]);
+    release();
     const started = results.filter((r) => r.status === 'fulfilled');
     expect(started).toHaveLength(1);
     expect(results.find((r) => r.status === 'rejected')).toMatchObject({
@@ -288,7 +322,7 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('recovers a stale run on the next start; only Retry restarts it', async () => {
+  it('recovers a stale run on the next start; only a retry restarts it', async () => {
     const key = await seedCandidate('stale');
     await db
       .update(demoCandidates)
@@ -298,93 +332,80 @@ describe.runIf(up)('demo runner (Postgres)', () => {
         runHeartbeatAt: new Date(Date.now() - 600_000),
       })
       .where(eq(demoCandidates.key, key));
-    const fetchMock = museFetch(CANDIDATE_OUTPUT);
-    await expect(
-      startCandidateRun(key, { retry: false }, options(fetchMock)),
-    ).rejects.toMatchObject({
+    const fetchMock = museFetch();
+    await expect(startCandidateRun(key, { retry: false }, deps(fetchMock))).rejects.toMatchObject({
       code: 'previous_failure',
     });
     expect(await candidate(key)).toMatchObject({ runStatus: 'failed', runError: 'interrupted' });
-    await (
-      await startCandidateRun(key, { retry: true }, options(fetchMock))
-    ).done;
+    await (await startCandidateRun(key, { retry: true }, deps(fetchMock))).done;
     expect(await candidate(key)).toMatchObject({ runStatus: 'idle', runError: null });
   });
 
-  it('a worker that lost its claim writes nothing and never starts a paid request', async () => {
-    const key = await seedCandidate('superseded', { selected: ['one', 'two'] });
+  it('a worker that lost its claim never starts a paid request', async () => {
+    const key = await seedCandidate('superseded');
     let release!: () => void;
     gate = new Promise((r) => (release = r));
-    const fetchMock = museFetch(CANDIDATE_OUTPUT);
-    const run = await startCandidateRun(key, { retry: false }, options(fetchMock));
-    await vi.waitFor(() => expect(fetched).toEqual(['two']));
+    const fetchMock = museFetch();
+    const run = await startCandidateRun(key, { retry: false }, deps(fetchMock));
+    await vi.waitFor(() => expect(fetched.map((f) => f.repo)).toEqual(['one']));
     // Recovery and a newer claim replace the token while the old worker is still fetching.
     const newer = randomUUID();
     await db
       .update(demoCandidates)
       .set({ runId: newer, runStatus: 'pending', runHeartbeatAt: new Date() })
       .where(eq(demoCandidates.key, key));
-    const before = (await candidate(key)).prepared;
     release();
     await run.done;
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(await candidate(key)).toMatchObject({
-      runId: newer,
-      runStatus: 'pending',
-      prepared: before,
-    });
+    expect(await candidate(key)).toMatchObject({ runId: newer, runStatus: 'pending' });
+    expect(await runs(key)).toEqual([]);
     await db
       .update(demoCandidates)
       .set({ runStatus: 'idle', runId: null })
       .where(eq(demoCandidates.key, key));
   });
 
-  it('records a Contributor-mode resume refusal as a safe failure, without a request', async () => {
+  it('sends the approved demo resume to Contributor mode', async () => {
     const key = await seedCandidate('contributor', { resume: 'Claims everything' });
-    const fetchMock = museFetch(CANDIDATE_OUTPUT);
-    const deps = options(fetchMock);
+    const fetchMock = museFetch();
+    const d = deps(fetchMock);
     const run = await startCandidateRun(
       key,
       { retry: false },
-      {
-        ...deps,
-        runOptions: { ...deps.runOptions, model: 'muse-spark-1.3-contributor' },
-      },
+      { ...d, runOptions: { ...d.runOptions, model: 'muse-spark-1.3-contributor' } },
     );
     await run.done;
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(await candidate(key)).toMatchObject({
-      runStatus: 'failed',
-      runError: 'contributor_not_permitted',
-    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await candidate(key)).toMatchObject({ runStatus: 'idle', runError: null });
   });
 
   it('refuses subjects that cannot be analysed, and missing configuration', async () => {
     const org = await seedCandidate('org', { organization: true });
     const none = await seedCandidate('none', { selected: [] });
-    const outside = await seedJob('outside', false);
-    const fetchMock = museFetch();
-    await expect(
-      startCandidateRun(org, { retry: false }, options(fetchMock)),
-    ).rejects.toMatchObject({
+    const outside = await seedJob('outside', { inScope: false });
+    const fetchMock = museFetch(0);
+    await expect(startCandidateRun(org, { retry: false }, deps(fetchMock))).rejects.toMatchObject({
       code: 'organization_account',
     });
     await expect(
-      startCandidateRun(none, { retry: false }, options(fetchMock)),
-    ).rejects.toMatchObject({
-      code: 'no_selected_repositories',
-    });
-    await expect(startJobRun(outside, { retry: false }, options(fetchMock))).rejects.toMatchObject({
+      startCandidateRun(none, { retry: false }, deps(fetchMock)),
+    ).rejects.toMatchObject({ code: 'no_selected_repositories' });
+    await expect(startJobRun(outside, { retry: false }, deps(fetchMock))).rejects.toMatchObject({
       code: 'out_of_scope',
     });
     await expect(startCandidateRun(`${RUN}-missing`, { retry: false })).rejects.toBeInstanceOf(
       RunError,
     );
+    // An account GitHub reports as an organization fails before any request.
+    const lab = await seedCandidate('lab');
+    await (await startCandidateRun(lab, { retry: false }, deps(fetchMock, 'Organization'))).done;
+    expect(await candidate(lab)).toMatchObject({
+      runStatus: 'failed',
+      runError: 'organization_account',
+    });
     config.META_API_KEY = undefined;
     const key = await seedCandidate('unconfigured');
-    await expect(
-      startCandidateRun(key, { retry: false }, options(fetchMock)),
-    ).rejects.toMatchObject({
+    await expect(startCandidateRun(key, { retry: false }, deps(fetchMock))).rejects.toMatchObject({
       code: 'model_not_configured',
     });
     config.META_MODEL = undefined;
@@ -392,28 +413,23 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     expect((await candidateState(await candidate(key))).freshness.state).toBe(
       'model_not_configured',
     );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('scores current results, rescores priority changes for free and hides stale ones', async () => {
     const key = await seedCandidate('match');
     const id = await seedJob('match');
-    const fetchMock = museFetch(CANDIDATE_OUTPUT, JOB_OUTPUT);
-    await (
-      await startCandidateRun(key, { retry: false }, options(fetchMock))
-    ).done;
-    await (
-      await startJobRun(id, { retry: false }, options(fetchMock))
-    ).done;
+    const fetchMock = museFetch();
+    await (await startCandidateRun(key, { retry: false }, deps(fetchMock))).done;
+    await (await startJobRun(id, { retry: false }, deps(fetchMock))).done;
     expect((await jobState(await job(id))).freshness.state).toBe('current');
-    expect(await startJobRun(id, { retry: false }, options(fetchMock))).toEqual({
-      result: 'cached',
-    });
 
     const calls = await paidCalls();
     const first = await demoMatch(await candidate(key), await job(id));
+    // Graded from the full posting text, so the score is not provisional.
     expect(first).toMatchObject({
       availability: 'available',
-      match: { status: 'scored', provisional: true },
+      match: { status: 'scored', provisional: false },
     });
     const score = (m: typeof first) =>
       m.availability === 'available' && m.match.status === 'scored' ? m.match.compatibility : null;
@@ -423,7 +439,7 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     expect(await paidCalls()).toBe(calls);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Input changes hide the old result immediately, before anyone clicks Analyze.
+    // Input changes hide the old result immediately, before anyone regrades.
     await db
       .update(demoCandidates)
       .set({ resumeStatus: 'extracted', resumeText: 'New resume' })
@@ -435,28 +451,18 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     });
     await db
       .update(demoCandidates)
-      .set({
-        resumeText: null,
-        resumeStatus: 'none',
-        repositories: [{ ...sel('one'), pinnedSha: 'other' }],
-      })
+      .set({ resumeText: null, resumeStatus: 'none', repositories: [sel('one'), sel('two')] })
       .where(eq(demoCandidates.key, key));
-    expect((await candidateState(await candidate(key))).freshness.state).toBe('not_prepared');
+    expect((await candidateState(await candidate(key))).freshness.state).toBe('outdated');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('never scores a candidate without attributed evidence', async () => {
-    const key = await seedCandidate('no-evidence', {
-      repos: [fixtureRepo('one', [{ path: 'src/a.ts', content: sourceLines(5) }], [])],
-    });
+    const key = await seedCandidate('no-evidence', { selected: ['plain'] });
     const id = await seedJob('no-evidence');
-    const fetchMock = museFetch(JOB_OUTPUT);
-    await (
-      await startCandidateRun(key, { retry: false }, options(fetchMock))
-    ).done;
-    await (
-      await startJobRun(id, { retry: false }, options(fetchMock))
-    ).done;
+    const fetchMock = museFetch();
+    await (await startCandidateRun(key, { retry: false }, deps(fetchMock))).done;
+    await (await startJobRun(id, { retry: false }, deps(fetchMock))).done;
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await demoMatch(await candidate(key), await job(id))).toEqual({
       availability: 'unavailable',
@@ -469,5 +475,86 @@ describe.runIf(up)('demo runner (Postgres)', () => {
         and(eq(skillAssessments.subjectKey, key), inArray(skillAssessments.kind, ['candidate'])),
       );
     expect(rows).toEqual([{ status: 'no_attributed_evidence' }]);
+  });
+});
+
+describe.runIf(up)('analysis worker (Postgres)', () => {
+  const W = `${RUN}-w`;
+
+  it('grades each ungraded subject once, then scores every pair without further calls', async () => {
+    const scope = `${W}-`;
+    const seekers = await Promise.all(['a', 'b'].map((s) => seedCandidate(`w-${s}`)));
+    const jobs = await Promise.all(['x', 'y'].map((s) => seedJob(`w-${s}`)));
+    const skipped = {
+      org: await seedCandidate('w-org', { organization: true }),
+      incomplete: await seedCandidate('w-incomplete', { selected: [] }),
+      notes: await seedJob('w-notes', { textSource: 'fixture_summary' }),
+      outside: await seedJob('w-outside', { inScope: false }),
+    };
+    const fetchMock = museFetch();
+    const d = { ...deps(fetchMock), scope };
+    let ticks = 0;
+    while (await analysisTick(d)) ticks++;
+    expect(ticks).toBe(4);
+    // Two candidates and two jobs: one call each, whatever the number of pairs.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const key of seekers) expect(await candidate(key)).toMatchObject({ runStatus: 'idle' });
+    for (const id of jobs) expect(await job(id)).toMatchObject({ runStatus: 'idle' });
+    for (const key of [skipped.org, skipped.incomplete]) {
+      expect(await candidate(key)).toMatchObject({ runStatus: 'idle' });
+      expect(await runs(key)).toEqual([]);
+    }
+    for (const id of [skipped.notes, skipped.outside]) {
+      expect(await job(id)).toMatchObject({ runStatus: 'idle' });
+    }
+
+    const before = await paidCalls();
+    for (const key of seekers) {
+      for (const id of jobs) {
+        expect(await demoMatch(await candidate(key), await job(id))).toMatchObject({
+          availability: 'available',
+          match: { status: 'scored' },
+        });
+      }
+    }
+    expect(await paidCalls()).toBe(before);
+    // Nothing is queued again once every subject has a result.
+    expect(await analysisTick(d)).toBe(false);
+  });
+
+  it('never retries a failed subject automatically; grades a legacy result once', async () => {
+    const scope = `${W}2-`;
+    const failed = await seedCandidate('w2-failed');
+    await db
+      .update(demoCandidates)
+      .set({ runStatus: 'failed', runError: 'timeout' })
+      .where(eq(demoCandidates.key, failed));
+    const legacy = await seedCandidate('w2-legacy');
+    // A saved result from before live analysis: no manifest, so it was never graded live.
+    await db.insert(skillAssessments).values({
+      kind: 'candidate',
+      subjectKind: 'demo',
+      subjectKey: legacy,
+      cacheKey: 'legacy-key',
+      model: 'muse-spark-1.3',
+      catalogueVersion: 2,
+      status: 'complete',
+      result: {},
+      completedAt: new Date(),
+    });
+    const fetchMock = museFetch();
+    const d = { ...deps(fetchMock), scope };
+    while (await analysisTick(d));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await candidate(failed)).toMatchObject({ runStatus: 'failed', runError: 'timeout' });
+    expect((await runs(legacy)).filter((r) => r.inputManifest !== null)).toHaveLength(1);
+    expect(await analysisTick(d)).toBe(false);
+  });
+
+  it('does nothing without Muse configuration', async () => {
+    config.META_API_KEY = undefined;
+    const key = await seedCandidate('w3-unconfigured');
+    expect(await analysisTick({ ...deps(museFetch(0)), scope: `${W}3-` })).toBe(false);
+    expect(await candidate(key)).toMatchObject({ runStatus: 'idle' });
   });
 });

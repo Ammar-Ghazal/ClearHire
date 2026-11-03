@@ -1,6 +1,6 @@
-// Demo candidate inputs. `effectiveInput` is the single builder used by result reads, matching and
-// the runner, so a changed selection, pin or resume can never leave an old result looking current.
-// `prepareDemoCandidate` fetches only what is missing or invalid; it never runs Muse.
+// Fetches a demo candidate's selected repositories for one run. The result lives only in memory:
+// repository code is never stored, so every run fetches the current default-branch commit again.
+// Never runs Muse.
 import { Octokit } from '@octokit/rest';
 import { env } from '../env.js';
 import type { CandidateIdentity } from './attribution.js';
@@ -11,7 +11,7 @@ import { ingestRepo, toIngestError } from './ingest.js';
 export interface SelectedRepo {
   owner: string;
   repo: string;
-  /** Commit recorded during research; snapshots are never advanced past it. */
+  /** Commit recorded during research; provenance only, runs grade the default-branch head. */
   pinnedSha: string | null;
 }
 
@@ -23,89 +23,27 @@ export interface DemoCandidateInput {
   resumeText: string | null;
 }
 
-export type EffectiveInput =
-  | { kind: 'ready'; prepared: PreparedCandidate }
-  | { kind: 'not_prepared'; missing: SelectedRepo[] };
-
 /** GitHub failures worth one explicit retry; the rest describe the repository itself. */
-const TRANSIENT = new Set(['rate_limited', 'timeout', 'upstream_error']);
+export const TRANSIENT = new Set(['rate_limited', 'timeout', 'upstream_error']);
 
-type Entry = PreparedRepo | UnavailableRepo;
-const isAvailable = (r: Entry): r is PreparedRepo => !('unavailable' in r);
-const sameRepo = (a: { owner: string; repo: string }, b: { owner: string; repo: string }) =>
-  a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase();
 export const fullName = (r: { owner: string; repo: string }) => `${r.owner}/${r.repo}`;
 
 /** A heartbeat older than this means the run's worker is gone. */
 export const RUN_STALE_MS = 120_000;
 
-export function identityMatches(
-  candidate: Pick<DemoCandidateInput, 'key' | 'githubLogin'>,
-  prepared: PreparedCandidate,
-): boolean {
-  return (
-    prepared.subject.kind === 'demo' &&
-    prepared.subject.key === candidate.key &&
-    prepared.identity.login.toLowerCase() === candidate.githubLogin.toLowerCase()
-  );
-}
-
-/**
- * Unavailable entries are valid incomplete evidence for the pin they were fetched for (entries
- * without a recorded pin predate it and are fetched again); available ones must match pin and owner.
- */
-function entryValid(entry: Entry, selection: SelectedRepo, identity: CandidateIdentity): boolean {
-  if (!isAvailable(entry)) return entry.requestedSha === selection.pinnedSha;
-  const meta = entry.collected.repository;
-  return (
-    (selection.pinnedSha === null || entry.snapshot.commitSha === selection.pinnedSha) &&
-    entry.collectedFor === identity.githubUserId &&
-    meta.commitSha === entry.snapshot.commitSha &&
-    sameRepo(meta, entry)
-  );
-}
-
-function validEntry(prepared: PreparedCandidate, sel: SelectedRepo) {
-  const entry = prepared.repos.find((r) => sameRepo(r, sel));
-  return entry && entryValid(entry, sel, prepared.identity) ? entry : undefined;
-}
-
-export function effectiveInput(
-  candidate: DemoCandidateInput,
-  prepared: PreparedCandidate | null,
-): EffectiveInput {
-  if (!prepared || !identityMatches(candidate, prepared)) {
-    return { kind: 'not_prepared', missing: candidate.repositories };
-  }
-  const missing = candidate.repositories.filter((sel) => !validEntry(prepared, sel));
-  if (missing.length > 0) return { kind: 'not_prepared', missing };
-  // Keeps the prepared order, so unchanged inputs keep their existing cache keys.
-  const repos = prepared.repos.filter((r) =>
-    candidate.repositories.some((sel) => sameRepo(r, sel)),
-  );
-  const resume = candidate.resumeText === null ? null : { text: candidate.resumeText };
-  return { kind: 'ready', prepared: { ...prepared, repos, resume } };
-}
-
-export const transientRepos = (prepared: PreparedCandidate): string[] =>
-  prepared.repos.flatMap((r) =>
-    !isAvailable(r) && TRANSIENT.has(r.unavailable) ? [fullName(r)] : [],
-  );
-
 export function demoOctokit(): Octokit {
   return new Octokit(env.GITHUB_DEMO_TOKEN ? { auth: env.GITHUB_DEMO_TOKEN } : {});
 }
 
-/** Ingests one pinned selection; GitHub failures become an unavailable entry, never a throw. */
+/** Ingests one selection at its default-branch head; failures become an unavailable entry. */
 export async function prepareRepo(
   octokit: Octokit,
-  selection: SelectedRepo,
+  selection: Pick<SelectedRepo, 'owner' | 'repo'>,
   identity: CandidateIdentity,
-): Promise<Entry> {
-  const { owner, repo, pinnedSha } = selection;
+): Promise<PreparedRepo | UnavailableRepo> {
+  const { owner, repo } = selection;
   try {
-    const ref = pinnedSha ?? undefined;
-    const snapshot = await ingestRepo(octokit, { owner, repo, ...(ref && { ref }) });
+    const snapshot = await ingestRepo(octokit, { owner, repo });
     const collected = await collectContributions(
       octokit,
       { owner, repo, commitSha: snapshot.commitSha },
@@ -114,53 +52,40 @@ export async function prepareRepo(
     return { owner, repo, collectedFor: identity.githubUserId, snapshot, collected };
   } catch (err) {
     const reason = toIngestError(err, 'prepare', new AbortController().signal).code;
-    return { owner, repo, unavailable: reason, requestedSha: pinnedSha };
+    return { owner, repo, unavailable: reason };
   }
 }
 
 export class PreparationError extends Error {
-  constructor(readonly code: 'identity_mismatch') {
-    super('The GitHub account does not match the profile login');
+  constructor(readonly code: 'identity_mismatch' | 'organization_account') {
+    super(
+      code === 'identity_mismatch'
+        ? 'The GitHub account does not match the profile login'
+        : 'Organization accounts are not analysed as a person',
+    );
   }
 }
 
-/**
- * Brings a preparation up to date: drops deselected repositories, keeps valid entries, and fetches
- * only missing or invalid selections (plus transient failures when `refetchTransient` is set).
- * The resume is never stored here; `effectiveInput` attaches the current text.
- */
+/** Fetches every selected repository and attaches the current resume text. */
 export async function prepareDemoCandidate(
   octokit: Octokit,
   candidate: DemoCandidateInput,
-  existing: PreparedCandidate | null,
-  options: { refetchTransient: boolean },
 ): Promise<PreparedCandidate> {
-  const base = existing && identityMatches(candidate, existing) ? existing : null;
-  let identity = base?.identity;
-  if (!identity) {
-    const { data: user } = await octokit.rest.users.getByUsername({
-      username: candidate.githubLogin,
-    });
-    if (user.login.toLowerCase() !== candidate.githubLogin.toLowerCase()) {
-      throw new PreparationError('identity_mismatch');
-    }
-    identity = { githubUserId: user.id, login: user.login, verifiedEmails: [] };
+  const { data: user } = await octokit.rest.users.getByUsername({
+    username: candidate.githubLogin,
+  });
+  if (user.login.toLowerCase() !== candidate.githubLogin.toLowerCase()) {
+    throw new PreparationError('identity_mismatch');
   }
-  const repos: Entry[] = [];
-  for (const sel of candidate.repositories) {
-    const entry = base ? validEntry(base, sel) : undefined;
-    const refetch =
-      entry !== undefined &&
-      options.refetchTransient &&
-      !isAvailable(entry) &&
-      TRANSIENT.has(entry.unavailable);
-    repos.push(entry && !refetch ? entry : await prepareRepo(octokit, sel, identity));
-  }
+  if (user.type === 'Organization') throw new PreparationError('organization_account');
+  const identity = { githubUserId: user.id, login: user.login, verifiedEmails: [] };
+  const repos: (PreparedRepo | UnavailableRepo)[] = [];
+  for (const sel of candidate.repositories) repos.push(await prepareRepo(octokit, sel, identity));
   return {
     subject: { kind: 'demo', key: candidate.key },
     identity,
     repos,
-    resume: null,
-    dataUse: base?.dataUse ?? 'approved_public_demo',
+    resume: candidate.resumeText === null ? null : { text: candidate.resumeText },
+    dataUse: 'approved_public_demo',
   };
 }

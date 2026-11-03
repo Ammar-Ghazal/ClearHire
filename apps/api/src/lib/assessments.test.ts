@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq, like } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 // Real Postgres, mocked Muse: no request leaves the process and no real budget row is touched.
@@ -25,11 +25,12 @@ const {
   analyzeCandidate,
   analyzeJob,
   assessmentByFingerprint,
-  candidateFingerprint,
+  candidateKey,
   dbLedger,
   jobFingerprint,
   matchSaved,
   recoverStaleAssessments,
+  scopesFor,
   setPriorityOverride,
 } = await import('./assessments.js');
 const { fixtureCandidate, fixtureRepo, sourceLines } = await import('./candidate-fixtures.js');
@@ -124,36 +125,55 @@ afterAll(async () => {
   await pool.end();
 });
 
-// Recorded from the code before fingerprints were extracted (and confirmed equal to the keys it
-// stored), so a change here means every saved assessment would silently become outdated. They
-// also change when the catalogue or a prompt/schema/cleaner/selection/attribution version does.
+// Recorded from the current code: a change here means every saved assessment silently becomes
+// outdated. They also change when the catalogue or a prompt/schema/cleaner/selection/attribution
+// version does.
 const GOLDEN = {
-  evidence: 'ef9a60edb1418d4ee8f6e02b6382ae895ccd25aff478146a15684751767acc0d',
-  noEvidence: '08176a99b97b875ecddcbf5f92212c962867d6795a28b104280ba8b400874197',
-  job: '1f1dda11c327423569dbc547b0b2317699ed8cc328ffcdd41f6aff1f3a4918d3',
+  candidate: '6b46d4130fea435fdcc26522deb6aec90f94b2f97df781663626f6b36c08791c',
+  job: '53058cc1ade4420e6c2c3daa9e0fee7eed7979031e5d2991002dc89aebe51c93',
 };
-const golden = (key: string, repos = [attributedRepo()]) =>
-  fixtureCandidate(repos, { subject: { kind: 'demo', key } });
 const unattributedRepo = () =>
   fixtureRepo('two', [{ path: 'src/b.ts', content: sourceLines(10) }], []);
 const MODEL = { model: 'muse-spark-1.3-contributor' as const };
+const keyOf = (c: ReturnType<typeof fixtureCandidate>) =>
+  candidateKey(c.subject, { repos: c.repos, resumeText: c.resume?.text ?? null }).cacheKey;
 
-describe('fingerprints', () => {
-  it('reproduce the cache keys analysis has always stored', () => {
-    expect(candidateFingerprint(golden('golden-evidence'), MODEL).cacheKey).toBe(GOLDEN.evidence);
-    const none = candidateFingerprint(golden('golden-none', [unattributedRepo()]), MODEL);
-    expect(none).toMatchObject({ noEvidence: true, cacheKey: GOLDEN.noEvidence });
+describe('input keys', () => {
+  it('reproduce the recorded keys', () => {
+    const subject = { kind: 'demo' as const, key: 'golden-evidence' };
+    const repos = [{ owner: 'octo', repo: 'one' }];
+    expect(candidateKey(subject, { repos, resumeText: null }, MODEL).cacheKey).toBe(
+      GOLDEN.candidate,
+    );
     const posting = { ...job('x'), jobKey: 'golden-job', text: 'Write unit tests' };
     expect(jobFingerprint(posting, MODEL).cacheKey).toBe(GOLDEN.job);
   });
 
-  it('change with resume text only when attributed evidence exists', () => {
-    const resume = { text: 'Claims Kubernetes expertise' };
-    const withResume = (c: ReturnType<typeof golden>) => ({ ...c, resume });
-    const evidence = golden('golden-evidence');
-    expect(candidateFingerprint(withResume(evidence), MODEL).cacheKey).not.toBe(GOLDEN.evidence);
-    const none = golden('golden-none', [unattributedRepo()]);
-    expect(candidateFingerprint(withResume(none), MODEL).cacheKey).toBe(GOLDEN.noEvidence);
+  it('come from the selection and résumé, never from repository content', () => {
+    const subject = { kind: 'demo' as const, key: 'golden-evidence' };
+    const key = (repos: { owner: string; repo: string }[], resumeText: string | null = null) =>
+      candidateKey(subject, { repos, resumeText }, MODEL).cacheKey;
+    // A fetched snapshot and stored metadata agree, whatever code the repository holds.
+    const otherCode = fixtureRepo('one', [{ path: 'src/z.ts', content: sourceLines(3, 'z') }], []);
+    expect(keyOf(fixtureCandidate([attributedRepo()], { subject }))).toBe(
+      key([{ owner: 'octo', repo: 'one' }]),
+    );
+    expect(keyOf(fixtureCandidate([otherCode], { subject }))).toBe(GOLDEN.candidate);
+    expect(keyOf(fixtureCandidate([attributedRepo(), unattributedRepo()], { subject }))).not.toBe(
+      GOLDEN.candidate,
+    );
+    expect(key([{ owner: 'Octo', repo: 'One' }])).toBe(GOLDEN.candidate);
+    expect(key([{ owner: 'octo', repo: 'one' }], 'Claims Kubernetes')).not.toBe(GOLDEN.candidate);
+  });
+
+  it('give each demo seeker only their own lifetime $15 scope, outside the daily cap', () => {
+    expect(scopesFor('candidate', { kind: 'demo', key: 'a' })).toEqual([
+      { scope: 'subject:candidate:demo:a', cap: 15_000_000 },
+    ]);
+    expect(scopesFor('job', { kind: 'demo', key: 'j' }).map((s) => s.scope)).toEqual([
+      expect.stringMatching(/^daily:/),
+      'subject:job:demo:j',
+    ]);
   });
 });
 
@@ -194,7 +214,7 @@ describe.runIf(up)('assessments (Postgres)', () => {
     expect((await budget(`${NS}wide`))!.reservedMicroUsd).toBe(200);
   });
 
-  it('makes one paid call for concurrent identical requests and caches per model', async () => {
+  it('makes one paid call for concurrent requests and caches per model', async () => {
     let release!: () => void;
     let started!: () => void;
     const fetchStarted = new Promise<void>((r) => (started = r));
@@ -434,13 +454,19 @@ describe.runIf(up)('assessments (Postgres)', () => {
     release();
     await expect(first).rejects.toMatchObject({ code: 'previous_failure' });
 
+    // The retry is a new run; the interrupted one stays failed with its estimated spend.
     const [row] = await db
       .select()
       .from(skillAssessments)
       .where(eq(skillAssessments.id, before!.id));
-    expect(row).toMatchObject({ status: 'complete', errorCode: null });
+    expect(row).toMatchObject({ status: 'failed', errorCode: 'interrupted' });
     const calls = await db.select().from(museCalls).where(eq(museCalls.assessmentId, before!.id));
-    expect(calls.map((c) => c.settlement).sort()).toEqual(['ambiguous', 'settled']);
+    expect(calls.map((c) => c.settlement)).toEqual(['ambiguous']);
+    const [retriedRow] = await db
+      .select()
+      .from(skillAssessments)
+      .where(eq(skillAssessments.id, retried.assessmentId));
+    expect(retriedRow).toMatchObject({ status: 'complete', errorCode: null });
     const subject = await budget(`${NS}subject:job:demo:${RUN}-stalled`);
     expect(subject!.reservedMicroUsd).toBe(0);
   });
@@ -491,20 +517,109 @@ describe.runIf(up)('assessments (Postgres)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('refuses resume text in Contributor mode before claiming, leaving no pending row', async () => {
+  it('refuses a user résumé in Contributor mode before claiming, leaving no pending row', async () => {
     const fetchMock = fakeFetch();
-    const subject = { kind: 'demo' as const, key: `${RUN}-resume` };
+    const subject = { kind: 'user' as const, key: `${RUN}-resume` };
     const prepared = fixtureCandidate([attributedRepo()], { subject, resume: { text: 'Resume' } });
     await expect(
       analyzeCandidate(prepared, { ...OPTIONS, fetch: fetchMock as never }),
     ).rejects.toMatchObject({ code: 'contributor_not_permitted' });
     expect(fetchMock).not.toHaveBeenCalled();
-    const { cacheKey } = candidateFingerprint(prepared);
     const rows = await db
       .select()
       .from(skillAssessments)
-      .where(eq(skillAssessments.cacheKey, cacheKey));
+      .where(eq(skillAssessments.cacheKey, keyOf(prepared)));
     expect(rows).toEqual([]);
+  });
+
+  it('sends an approved demo resume to Contributor mode as an unverified claim', async () => {
+    const fetchMock = fakeFetch(completion(CANDIDATE_OUTPUT));
+    const subject = { kind: 'demo' as const, key: `${RUN}-demo-resume` };
+    const prepared = fixtureCandidate([attributedRepo()], {
+      subject,
+      resume: { text: 'Claims Kubernetes expertise' },
+    });
+    const result = await analyzeCandidate(prepared, { ...OPTIONS, fetch: fetchMock as never });
+    expect(result.assessment.status).toBe('complete');
+    const sent = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+      .body as string) as { messages: { content: string }[] };
+    expect(sent.messages[2]!.content).toContain('<resume>\nClaims Kubernetes expertise\n</resume>');
+  });
+
+  it('runs a fresh assessment for an explicit regrade of unchanged input', async () => {
+    const fetchMock = fakeFetch(
+      completion(CANDIDATE_OUTPUT),
+      completion(CANDIDATE_OUTPUT),
+      completion(JOB_OUTPUT),
+      completion(JOB_OUTPUT),
+    );
+    const options = { ...OPTIONS, fetch: fetchMock as unknown as typeof fetch };
+    const subject = { kind: 'demo' as const, key: `${RUN}-regrade` };
+    const prepared = fixtureCandidate([attributedRepo()], { subject });
+    const first = await analyzeCandidate(prepared, options);
+    expect((await analyzeCandidate(prepared, options)).cached).toBe(true);
+    const regraded = await analyzeCandidate(prepared, { ...options, fresh: true });
+    expect(regraded.cached).toBe(false);
+    expect(regraded.assessmentId).not.toBe(first.assessmentId);
+
+    const posting = job('regrade');
+    const graded = await analyzeJob(posting, options);
+    const again = await analyzeJob(posting, { ...options, fresh: true });
+    expect(again).toMatchObject({ cached: false });
+    expect(again.assessmentId).not.toBe(graded.assessmentId);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    // The newest saved run is the current one; earlier runs stay as history.
+    const lookup = await assessmentByFingerprint('candidate', subject, keyOf(prepared));
+    expect(lookup).toMatchObject({ state: 'current' });
+    const rows = await db
+      .select()
+      .from(skillAssessments)
+      .where(
+        and(eq(skillAssessments.kind, 'candidate'), eq(skillAssessments.subjectKey, subject.key)),
+      );
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.inputManifest?.repos[0]?.repo === 'octo/one')).toBe(true);
+  });
+
+  it('charges each seeker only their own allowance', async () => {
+    const fetchMock = fakeFetch(completion(CANDIDATE_OUTPUT));
+    const day = new Date().toISOString().slice(0, 10);
+    const dailyBefore = await budget(`${NS}daily:${day}`);
+    const a = { kind: 'demo' as const, key: `${RUN}-seeker-a` };
+    const b = { kind: 'demo' as const, key: `${RUN}-seeker-b` };
+    await analyzeCandidate(fixtureCandidate([attributedRepo()], { subject: a }), {
+      ...OPTIONS,
+      fetch: fetchMock as never,
+    });
+    const spentA = await budget(`${NS}subject:candidate:demo:${a.key}`);
+    expect(spentA).toMatchObject({ capMicroUsd: 15_000_000, reservedMicroUsd: 0 });
+    expect(spentA!.spentMicroUsd).toBeGreaterThan(0);
+    expect(await budget(`${NS}subject:candidate:demo:${b.key}`)).toBeUndefined();
+    // The shared daily cap is never charged for a seeker's run.
+    expect(await budget(`${NS}daily:${day}`)).toEqual(dailyBefore);
+
+    // B's allowance is untouched, so B can spend even when A's is exhausted.
+    await db
+      .update(museSpendBudgets)
+      .set({ spentMicroUsd: 15_000_000 })
+      .where(eq(museSpendBudgets.scope, `${NS}subject:candidate:demo:${a.key}`));
+    const refused = fakeFetch(completion(CANDIDATE_OUTPUT));
+    await expect(
+      analyzeCandidate(fixtureCandidate([attributedRepo()], { subject: a }), {
+        ...OPTIONS,
+        fresh: true,
+        fetch: refused as never,
+      }),
+    ).rejects.toMatchObject({ code: 'budget_exceeded' });
+    expect(refused).not.toHaveBeenCalled();
+    const okB = fakeFetch(completion(CANDIDATE_OUTPUT));
+    await expect(
+      analyzeCandidate(fixtureCandidate([attributedRepo()], { subject: b }), {
+        ...OPTIONS,
+        fetch: okB as never,
+      }),
+    ).resolves.toMatchObject({ cached: false });
   });
 
   it('still saves a no-evidence result with a resume, without any request', async () => {
@@ -522,7 +637,7 @@ describe.runIf(up)('assessments (Postgres)', () => {
   it('looks results up by exact fingerprint, never returning older inputs as current', async () => {
     const subject = { kind: 'demo' as const, key: `${RUN}-lookup` };
     const first = fixtureCandidate([attributedRepo()], { subject });
-    const key = (c: typeof first) => candidateFingerprint(c).cacheKey;
+    const key = keyOf;
     expect(await assessmentByFingerprint('candidate', subject, key(first))).toEqual({
       state: 'not_started',
     });

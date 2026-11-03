@@ -1,7 +1,7 @@
 // Imports the saved demo fixtures. Phase A reads, validates and extracts resume PDFs with no
 // transaction open; phase B writes only changed fields in one transaction. Demo subjects never
 // reference users. Errors name the file, record and field, never values.
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
@@ -697,7 +697,7 @@ export async function importDemoData(
           ...preparedFields,
           updatedAt: now,
         })
-        .where(and(eq(demoCandidates.key, c.key)));
+        .where(eq(demoCandidates.key, c.key));
       stats.candidates.updated++;
     }
 

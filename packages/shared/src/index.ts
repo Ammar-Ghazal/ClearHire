@@ -141,6 +141,15 @@ export const EvidenceRefSchema = z.object({
 });
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 
+const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
+
+/** A GitHub blob link pinned to the stored snapshot's commit and the exact line range. */
+export const evidenceUrl = (
+  ref: Pick<EvidenceRef, 'repo' | 'commitSha' | 'path' | 'startLine' | 'endLine'>,
+) =>
+  `https://github.com/${ref.repo}/blob/${ref.commitSha}/${encodePath(ref.path)}` +
+  `#L${ref.startLine}-L${ref.endLine}`;
+
 const SupportedClaimSchema = z.object({ summary: z.string(), refs: z.array(EvidenceRefSchema) });
 
 export const RepositoryFindingSchema = z.object({
@@ -452,6 +461,7 @@ export const DemoJobSummarySchema = z.object({
     name: z.string(),
     url: z.string(),
     description: z.string(),
+    location: z.string().nullable(),
   }),
   location: z.string().nullable(),
   sourceUrl: z.string(),
@@ -493,3 +503,182 @@ export type DemoMatch = z.infer<typeof DemoMatchSchema>;
 
 export const AnalysisStartSchema = z.object({ result: z.enum(['started', 'cached']) });
 export type AnalysisStart = z.infer<typeof AnalysisStartSchema>;
+
+// ---- Demo recruiting workflow: a demo identity acts as a sample candidate or employer ----
+
+export const DemoSideSchema = z.enum(['candidate', 'employer']);
+export type DemoSide = z.infer<typeof DemoSideSchema>;
+
+export const DemoIdentityInputSchema = z.object({ kind: DemoSideSchema, key: z.string().min(1) });
+
+/** The chosen demo identity and the counts of items waiting on it. Never a GitHub sign-in. */
+export const DemoIdentitySchema = z.object({
+  identity: z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('candidate'),
+      key: z.string(),
+      name: z.string(),
+      githubLogin: z.string(),
+      githubUrl: z.string(),
+    }),
+    z.object({
+      kind: z.literal('employer'),
+      key: z.string(),
+      name: z.string(),
+      description: z.string(),
+      url: z.string(),
+      location: z.string().nullable(),
+    }),
+  ]),
+  badges: z.object({
+    matches: z.number().int(),
+    interviews: z.number().int(),
+    offers: z.number().int(),
+  }),
+});
+export type DemoIdentity = z.infer<typeof DemoIdentitySchema>;
+
+export const AnswerSchema = z.enum(['yes', 'maybe', 'no']);
+export type Answer = z.infer<typeof AnswerSchema>;
+
+/** Relative to the viewing identity: "needs_response" for one side is "waiting" for the other. */
+export const RelationshipStageSchema = z.enum([
+  'needs_response',
+  'waiting',
+  'discussion',
+  'interview',
+  'offer_shared',
+  'offer_accepted',
+  'offer_declined',
+  'you_declined',
+  'they_declined',
+]);
+export type RelationshipStage = z.infer<typeof RelationshipStageSchema>;
+
+export const RelationshipSchema = z.object({
+  stage: RelationshipStageSchema,
+  candidateAnswer: AnswerSchema.nullable(),
+  employerAnswer: AnswerSchema.nullable(),
+  candidateConfirmed: z.boolean(),
+  employerConfirmed: z.boolean(),
+});
+export type Relationship = z.infer<typeof RelationshipSchema>;
+
+/** `updating` means a run is pending; every non-scored state names why there is no score. */
+export const ScoreSchema = z.object({
+  state: z.enum([
+    'scored',
+    'zero_priority',
+    'updating',
+    'failed',
+    'outdated',
+    'not_analyzed',
+    'no_attributed_code',
+  ]),
+  compatibility: z.number().nullable(),
+  evidenceCoverage: z.number().nullable(),
+  provisional: z.boolean(),
+});
+export type Score = z.infer<typeof ScoreSchema>;
+
+const MatchPartiesSchema = z.object({
+  candidate: z.object({ key: z.string(), name: z.string(), githubLogin: z.string() }),
+  job: z.object({
+    id: z.string(),
+    title: z.string(),
+    location: z.string().nullable(),
+    employer: z.object({ id: z.string(), name: z.string() }),
+  }),
+});
+
+export const MatchSummarySchema = MatchPartiesSchema.extend({
+  score: ScoreSchema,
+  relationship: RelationshipSchema,
+  lastActivityAt: z.string().nullable(),
+});
+export type MatchSummary = z.infer<typeof MatchSummarySchema>;
+export const MatchListSchema = z.array(MatchSummarySchema);
+
+export const InterviewFormatSchema = z.enum(['video', 'phone', 'in_person']);
+export const InterviewSchema = z.object({
+  format: InterviewFormatSchema,
+  lengthMinutes: z.number().int(),
+  location: z.string(),
+  slots: z.array(z.object({ id: z.string(), startsAt: z.string() })),
+  confirmedSlotId: z.string().nullable(),
+});
+export type Interview = z.infer<typeof InterviewSchema>;
+
+export const InterviewInputSchema = z
+  .object({
+    format: InterviewFormatSchema,
+    lengthMinutes: z.number().int().min(15).max(480),
+    location: z.string().trim().min(1).max(300),
+    slots: z
+      .array(z.string().datetime({ offset: true }))
+      .min(1)
+      .max(10)
+      .refine((s) => new Set(s.map((t) => Date.parse(t))).size === s.length, 'Duplicate slot'),
+  })
+  .strict();
+export type InterviewInput = z.infer<typeof InterviewInputSchema>;
+export const InterviewConfirmSchema = z.object({ slotId: z.string().uuid() }).strict();
+
+export const InterviewItemSchema = MatchSummarySchema.extend({
+  interview: InterviewSchema.nullable(),
+});
+export const InterviewListSchema = z.array(InterviewItemSchema);
+export type InterviewItem = z.infer<typeof InterviewItemSchema>;
+
+export const ArrangementSchema = z.enum(['on_site', 'hybrid', 'remote']);
+export type Arrangement = z.infer<typeof ArrangementSchema>;
+
+export const OfferInputSchema = z
+  .object({
+    role: z.string().trim().min(1).max(200),
+    baseSalaryCad: z.number().int().min(1).max(10_000_000),
+    startDate: z.string().date(),
+    arrangement: ArrangementSchema,
+    note: z.string().trim().max(2000),
+  })
+  .strict();
+export type OfferInput = z.infer<typeof OfferInputSchema>;
+
+export const OfferSchema = MatchPartiesSchema.extend(OfferInputSchema.shape).extend({
+  id: z.string(),
+  status: z.enum(['draft', 'shared', 'accepted', 'declined', 'withdrawn']),
+  stage: RelationshipStageSchema,
+  updatedAt: z.string(),
+});
+export type Offer = z.infer<typeof OfferSchema>;
+export const OfferListSchema = z.array(OfferSchema);
+
+export const MatchDetailSchema = MatchSummarySchema.extend({
+  match: DemoMatchSchema,
+  interview: InterviewSchema.nullable(),
+  /** Drafts are visible only to the employer. */
+  offer: OfferSchema.nullable(),
+});
+export type MatchDetail = z.infer<typeof MatchDetailSchema>;
+
+export const AnswerInputSchema = z.object({ answer: AnswerSchema }).strict();
+
+export const MessageInputSchema = z.object({ body: z.string().trim().min(1).max(2000) }).strict();
+export const MessageSchema = z.object({
+  id: z.string(),
+  authorSide: DemoSideSchema,
+  body: z.string(),
+  createdAt: z.string(),
+});
+export type Message = z.infer<typeof MessageSchema>;
+export const MessageListSchema = z.array(MessageSchema);
+
+/** Seeker preferences are editable and never affect scores. */
+export const PreferencesSchema = z
+  .object({
+    titles: z.array(z.string().trim().min(1).max(100)).max(10),
+    locations: z.array(z.string().trim().min(1).max(100)).max(10),
+    arrangements: z.array(ArrangementSchema).max(3),
+  })
+  .strict();
+export type Preferences = z.infer<typeof PreferencesSchema>;

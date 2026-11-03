@@ -155,15 +155,26 @@ export async function demoMatch(
       },
     };
   }
-  const c = await candidateState(candidate, options);
+  return matchFromStates(
+    await candidateState(candidate, options),
+    await jobState(job, options),
+    await priorityOverrides(job.id),
+  );
+}
+
+/** For callers that score many pairs: states and overrides are loaded once per subject. */
+export function matchFromStates(
+  c: CandidateState,
+  j: JobState,
+  overrides: ReadonlyMap<string, number>,
+): DemoMatch {
   if (!c.assessment) return { availability: 'unavailable', reason: 'candidate_not_current' };
   if (c.assessment.status === 'no_attributed_evidence') {
     return { availability: 'unavailable', reason: 'no_attributed_evidence' };
   }
-  const j = await jobState(job, options);
   if (!j.assessment) return { availability: 'unavailable', reason: 'job_not_current' };
   return {
     availability: 'available',
-    match: matchAssessments(c.assessment, j.assessment, await priorityOverrides(job.id)),
+    match: matchAssessments(c.assessment, j.assessment, overrides),
   };
 }

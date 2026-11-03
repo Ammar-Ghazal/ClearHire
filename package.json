@@ -15,6 +15,8 @@
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @clearhire/api db:generate",
     "db:migrate": "pnpm --filter @clearhire/api db:migrate",
+    "demo:seed": "pnpm --filter @clearhire/api demo:seed",
+    "demo:reset": "pnpm --filter @clearhire/api demo:reset",
     "gen:keys": "node scripts/gen-keys.mjs"
   },
   "devDependencies": {

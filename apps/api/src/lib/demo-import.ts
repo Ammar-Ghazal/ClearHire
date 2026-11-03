@@ -35,7 +35,13 @@ const SHA1 = z.string().regex(/^[0-9a-f]{40}$/);
 const GITHUB_URL = z.string().regex(/github\.com\/[^/?#]+/);
 
 const EmployerSchema = z
-  .object({ id: z.string().min(1), name: z.string(), description: z.string(), url: z.string() })
+  .object({
+    id: z.string().min(1),
+    name: z.string(),
+    description: z.string(),
+    url: z.string(),
+    location: z.string().min(1).optional(),
+  })
   .passthrough();
 
 const JobSchema = z
@@ -117,6 +123,7 @@ export interface EmployerRecord {
   name: string;
   description: string;
   url: string;
+  location: string | null;
   raw: unknown;
   recordSha256: string;
 }
@@ -224,6 +231,7 @@ export function validateDemoData(files: DemoFiles): DemoData {
       name: e.name,
       description: e.description,
       url: e.url,
+      location: e.location ?? null,
       raw,
       recordSha256: hashOf(raw),
     };
@@ -548,6 +556,7 @@ export async function importDemoData(
         name: e.name,
         description: e.description,
         url: e.url,
+        location: e.location,
         raw: e.raw,
         recordSha256: e.recordSha256,
       };

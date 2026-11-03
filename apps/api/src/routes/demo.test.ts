@@ -5,6 +5,7 @@ import {
   DemoJobListSchema,
   DemoJobSchema,
   DemoMatchSchema,
+  MatchListSchema,
 } from '@clearhire/shared';
 import { eq, like, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +13,10 @@ import { fixtureCandidate, fixtureRepo, sourceLines } from '../lib/candidate-fix
 
 // Sessions, the allowlist and the runner are mocked; reads use real Postgres where available.
 const state = vi.hoisted(() => ({ login: null as string | null, operators: [] as string[] }));
-vi.mock('../lib/sessions.js', () => ({ currentUserLogin: vi.fn(async () => state.login) }));
+vi.mock('../lib/sessions.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/sessions.js')>()),
+  currentUserLogin: vi.fn(async () => state.login),
+}));
 vi.mock('../env.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../env.js')>();
   const overrides: Record<string, unknown> = {
@@ -227,6 +231,16 @@ const forbidden = [
   'data/demo',
 ];
 
+async function demoIdentity(
+  instance: Awaited<ReturnType<typeof app>>,
+  kind: 'candidate' | 'employer',
+  key: string,
+) {
+  const res = await instance.inject({ method: 'POST', url: '/demo/identity', payload: { kind, key } });
+  expect(res.statusCode).toBe(200);
+  return { ch_demo: res.cookies.find((c) => c.name === 'ch_demo')!.value };
+}
+
 afterAll(async () => {
   if (up) {
     await db.delete(skillAssessments).where(like(skillAssessments.subjectKey, `${RUN}%`));
@@ -312,6 +326,27 @@ describe.runIf(up)('demo reads (Postgres)', () => {
       (await instance.inject({ method: 'GET', url: '/demo/candidates/nobody' })).statusCode,
     ).toBe(404);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps a demo answer while no analysis is current, and lists the pair unscored', async () => {
+    const instance = await app();
+    const cookies = await demoIdentity(instance, 'employer', EMPLOYER);
+    const answer = await instance.inject({
+      method: 'PUT',
+      url: `/demo/matches/${KEY}/${JOB}/answer`,
+      payload: { answer: 'maybe' },
+      cookies,
+    });
+    expect(answer.statusCode).toBe(200);
+    const list = MatchListSchema.parse(
+      (await instance.inject({ method: 'GET', url: `/demo/matches?job=${JOB}`, cookies })).json(),
+    );
+    expect(list.find((m) => m.candidate.key === KEY)).toMatchObject({
+      score: { state: 'not_analyzed', compatibility: null },
+      relationship: { stage: 'waiting', employerAnswer: 'maybe' },
+    });
+    // The out-of-scope posting is never listed.
+    expect(list.some((m) => m.job.id === OUT)).toBe(false);
   });
 
   it('returns schema-valid matches: out of scope, unavailable and scored', async () => {
@@ -425,5 +460,40 @@ describe.runIf(up)('demo reads (Postgres)', () => {
     ).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await calls()).toBe(before);
+  });
+
+  it('refreshes scores from new analyses without changing the answer', async () => {
+    const instance = await app();
+    const cookies = await demoIdentity(instance, 'employer', EMPLOYER);
+    const list = MatchListSchema.parse(
+      (await instance.inject({ method: 'GET', url: `/demo/matches?job=${JOB}`, cookies })).json(),
+    );
+    expect(list.find((m) => m.candidate.key === KEY)).toMatchObject({
+      score: { state: 'scored', provisional: true },
+      relationship: { stage: 'waiting', employerAnswer: 'maybe', candidateAnswer: null },
+    });
+  });
+
+  it('lets the owning employer identity edit and reset all priorities, and nobody else', async () => {
+    const instance = await app();
+    const cookies = await demoIdentity(instance, 'employer', EMPLOYER);
+    const put = (c: Record<string, string>) =>
+      instance.inject({
+        method: 'PUT',
+        url: `/demo/jobs/${JOB}/priorities/api-design`,
+        payload: { priority: 3 },
+        cookies: c,
+      });
+    expect((await put(cookies)).statusCode).toBe(200);
+    expect((await put(await demoIdentity(instance, 'candidate', KEY))).statusCode).toBe(401);
+    const reset = await instance.inject({
+      method: 'DELETE',
+      url: `/demo/jobs/${JOB}/priorities`,
+      cookies,
+    });
+    expect(DemoJobSchema.parse(reset.json()).requirements.every((r) => r.prioritySource === 'suggested')).toBe(true);
+    expect(
+      await db.select().from(jobPriorityOverrides).where(eq(jobPriorityOverrides.jobKey, JOB)),
+    ).toHaveLength(0);
   });
 });

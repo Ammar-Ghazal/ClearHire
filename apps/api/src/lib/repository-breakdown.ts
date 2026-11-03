@@ -2,6 +2,7 @@
 // shows only its own findings and evidence; a skill assessed from several repositories is labelled
 // candidate-wide, and states that are not current never show stored findings.
 import {
+  evidenceUrl,
   SKILL_CATALOGUE,
   type CandidateAssessment,
   type EvidenceRef,
@@ -14,14 +15,7 @@ import { fullName, type SelectedRepo } from './demo-prepare.js';
 const SKILL_NAMES = new Map<string, string>(SKILL_CATALOGUE.skills.map((s) => [s.id, s.name]));
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
-
-/** A GitHub blob link pinned to the stored snapshot's commit and the exact line range. */
-export const evidenceUrl = (
-  ref: Pick<EvidenceRef, 'repo' | 'commitSha' | 'path' | 'startLine' | 'endLine'>,
-) =>
-  `https://github.com/${ref.repo}/blob/${ref.commitSha}/${encodePath(ref.path)}` +
-  `#L${ref.startLine}-L${ref.endLine}`;
+export { evidenceUrl };
 
 const link = (ref: EvidenceRef) => ({
   path: ref.path,

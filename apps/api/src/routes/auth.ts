@@ -19,9 +19,9 @@ const CallbackQuery = z.object({
   setup_action: z.string().optional(),
 });
 
-/** Sends the browser back to the web app with a short error code it can display. */
+/** Sends the browser back to the operator page with a short error code it can display. */
 function backToWeb(reply: FastifyReply, params: Record<string, string> = {}) {
-  const url = new URL(env.WEB_ORIGIN);
+  const url = new URL('/operator', env.WEB_ORIGIN);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return reply.redirect(url.toString());
 }

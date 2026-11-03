@@ -6,6 +6,8 @@ import {
   bigint,
   boolean,
   check,
+  date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -15,6 +17,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
 export const users = pgTable(
@@ -178,6 +181,7 @@ export const demoEmployers = pgTable('demo_employers', {
   name: text('name').notNull(),
   description: text('description').notNull(),
   url: text('url').notNull(),
+  location: text('location'),
   raw: jsonb('raw').notNull(),
   recordSha256: text('record_sha256').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -233,5 +237,109 @@ export const demoCandidates = pgTable('demo_candidates', {
   prepared: jsonb('prepared'),
   preparedSha256: text('prepared_sha256'),
   ...runColumns,
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---- Demo recruiting workflow (acted on by a demo identity, never by a signed-in user) ----
+
+const answer = (name: string) => text(name, { enum: ['yes', 'maybe', 'no'] });
+
+/** One per candidate × posting; a missing row means neither side has answered. */
+export const demoRelationships = pgTable(
+  'demo_relationships',
+  {
+    candidateKey: text('candidate_key')
+      .notNull()
+      .references(() => demoCandidates.key, { onDelete: 'cascade' }),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => demoJobs.id, { onDelete: 'cascade' }),
+    candidateAnswer: answer('candidate_answer'),
+    employerAnswer: answer('employer_answer'),
+    candidateConfirmedAt: timestamp('candidate_confirmed_at', { withTimezone: true }),
+    employerConfirmedAt: timestamp('employer_confirmed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.candidateKey, t.jobId] })],
+);
+
+const relationshipRef = {
+  candidateKey: text('candidate_key').notNull(),
+  jobId: text('job_id').notNull(),
+};
+const relationshipFk = (t: { candidateKey: AnyPgColumn; jobId: AnyPgColumn }) =>
+  foreignKey({
+    columns: [t.candidateKey, t.jobId],
+    foreignColumns: [demoRelationships.candidateKey, demoRelationships.jobId],
+  }).onDelete('cascade');
+
+export const demoMessages = pgTable(
+  'demo_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ...relationshipRef,
+    authorSide: text('author_side', { enum: ['candidate', 'employer'] }).notNull(),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [relationshipFk(t), index('demo_messages_relationship_idx').on(t.candidateKey, t.jobId)],
+);
+
+export const demoInterviews = pgTable(
+  'demo_interviews',
+  {
+    ...relationshipRef,
+    format: text('format', { enum: ['video', 'phone', 'in_person'] }).notNull(),
+    lengthMinutes: integer('length_minutes').notNull(),
+    location: text('location').notNull(),
+    confirmedSlotId: uuid('confirmed_slot_id'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.candidateKey, t.jobId] }), relationshipFk(t)],
+);
+
+export const demoInterviewSlots = pgTable(
+  'demo_interview_slots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ...relationshipRef,
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.candidateKey, t.jobId],
+      foreignColumns: [demoInterviews.candidateKey, demoInterviews.jobId],
+    }).onDelete('cascade'),
+  ],
+);
+
+export const demoOffers = pgTable(
+  'demo_offers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ...relationshipRef,
+    role: text('role').notNull(),
+    baseSalaryCad: integer('base_salary_cad').notNull(),
+    startDate: date('start_date').notNull(),
+    arrangement: text('arrangement', { enum: ['on_site', 'hybrid', 'remote'] }).notNull(),
+    note: text('note').notNull().default(''),
+    status: text('status', { enum: ['draft', 'shared', 'accepted', 'declined', 'withdrawn'] })
+      .notNull()
+      .default('draft'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('demo_offers_relationship_key').on(t.candidateKey, t.jobId), relationshipFk(t)],
+);
+
+/** Seeker preferences: editable, never used in scoring. */
+export const demoPreferences = pgTable('demo_preferences', {
+  candidateKey: text('candidate_key')
+    .primaryKey()
+    .references(() => demoCandidates.key, { onDelete: 'cascade' }),
+  titles: jsonb('titles').$type<string[]>().notNull(),
+  locations: jsonb('locations').$type<string[]>().notNull(),
+  arrangements: jsonb('arrangements').$type<('on_site' | 'hybrid' | 'remote')[]>().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

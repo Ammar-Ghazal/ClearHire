@@ -4,6 +4,7 @@
     "name": "OpenAI",
     "description": "AI research and deployment",
     "url": "https://openai.com/",
+    "location": "San Francisco, CA",
     "candidate_connection": "Andrej Karpathy identifies OpenAI as a former employer: https://karpathy.ai/"
   },
   {
@@ -11,6 +12,7 @@
     "name": "Mytos",
     "description": "Biotechnology automation",
     "url": "https://jobs.lever.co/mytos",
+    "location": "London, UK",
     "candidate_connection": null
   },
   {
@@ -18,6 +20,7 @@
     "name": "Lyra Health",
     "description": "Mental healthcare",
     "url": "https://jobs.lever.co/lyrahealth",
+    "location": "Burlingame, CA",
     "candidate_connection": null
   },
   {
@@ -25,6 +28,7 @@
     "name": "Cprime",
     "description": "Technology consulting",
     "url": "https://jobs.lever.co/cprime",
+    "location": "San Francisco, CA",
     "candidate_connection": null
   },
   {
@@ -32,6 +36,7 @@
     "name": "Scaleway",
     "description": "Cloud infrastructure",
     "url": "https://jobs.lever.co/scaleway",
+    "location": "Paris, France",
     "candidate_connection": null
   },
   {
@@ -39,6 +44,7 @@
     "name": "Zimperium",
     "description": "Mobile security",
     "url": "https://jobs.lever.co/zimperium",
+    "location": "Dallas, TX",
     "candidate_connection": null
   },
   {
@@ -46,6 +52,7 @@
     "name": "Foodsmart",
     "description": "Nutrition and healthcare",
     "url": "https://jobs.lever.co/foodsmart",
+    "location": "San Francisco, CA",
     "candidate_connection": null
   },
   {
@@ -53,6 +60,7 @@
     "name": "Swile",
     "description": "Employee benefits and workplace services",
     "url": "https://jobs.lever.co/swile",
+    "location": "Montpellier, France",
     "candidate_connection": null
   },
   {
@@ -67,6 +75,7 @@
     "name": "Pivotal",
     "description": "Electric aircraft",
     "url": "https://jobs.lever.co/pivotal",
+    "location": "Palo Alto, CA",
     "candidate_connection": null
   },
   {
@@ -74,6 +83,7 @@
     "name": "FYZICAL",
     "description": "Physical therapy",
     "url": "https://jobs.lever.co/fyzicalhq",
+    "location": "Sarasota, FL",
     "candidate_connection": null
   },
   {
@@ -81,6 +91,7 @@
     "name": "Western Aircraft",
     "description": "Aircraft services and aviation",
     "url": "https://jobs.lever.co/westair",
+    "location": "Boise, ID",
     "candidate_connection": null
   },
   {
@@ -88,6 +99,7 @@
     "name": "Meta",
     "description": "Social technology and AI",
     "url": "https://www.metacareers.com/",
+    "location": "Menlo Park, CA",
     "candidate_connection": null
   },
   {
@@ -95,6 +107,7 @@
     "name": "Google",
     "description": "Search, cloud and technology products",
     "url": "https://www.google.com/about/careers/applications/",
+    "location": "Mountain View, CA",
     "candidate_connection": null
   },
   {
@@ -102,6 +115,7 @@
     "name": "Netflix",
     "description": "Streaming entertainment and technology",
     "url": "https://explore.jobs.netflix.net/careers",
+    "location": "Los Gatos, CA",
     "candidate_connection": null
   }
 ]

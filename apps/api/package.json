@@ -11,7 +11,9 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "demo:import": "tsx scripts/import-demo.ts"
+    "demo:import": "tsx scripts/import-demo.ts",
+    "demo:seed": "tsx scripts/seed-demo.ts",
+    "demo:reset": "tsx scripts/reset-demo.ts"
   },
   "dependencies": {
     "@clearhire/shared": "workspace:*",

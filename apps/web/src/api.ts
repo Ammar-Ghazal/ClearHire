@@ -7,9 +7,23 @@ import {
   DemoCandidateSchema,
   DemoJobListSchema,
   DemoJobSchema,
+  DemoIdentitySchema,
   DemoMatchSchema,
   HealthSchema,
+  InterviewListSchema,
+  MatchDetailSchema,
+  MatchListSchema,
   MeSchema,
+  MessageListSchema,
+  OfferListSchema,
+  OfferSchema,
+  PreferencesSchema,
+  type Answer,
+  type DemoIdentity,
+  type DemoSide,
+  type InterviewInput,
+  type OfferInput,
+  type Preferences,
   type AnalysisStart,
   type DemoCandidate,
   type DemoCandidateSummary,
@@ -67,6 +81,7 @@ async function request<T>(
       body: JSON.stringify(init.body),
     }),
   });
+  if (res.status === 204) return schema.parse(undefined);
   const json: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const parsed = ApiErrorSchema.safeParse(json);
@@ -113,3 +128,83 @@ export const setJobPriority = (id: string, skillId: string, priority: number | n
     method: 'PUT',
     body: { priority },
   });
+
+/** Resets every requirement of the posting to its suggested priority. */
+export const resetJobPriorities = (id: string) =>
+  request(`/demo/jobs/${segment(id)}/priorities`, DemoJobSchema, { method: 'DELETE' });
+
+// ---- Demo identity and recruiting workflow ----
+
+const nothing = { parse: () => undefined };
+
+/** Returns the chosen demo identity, or null when none is chosen. */
+export async function getDemoIdentity(): Promise<DemoIdentity | null> {
+  try {
+    return await request('/demo/identity', DemoIdentitySchema);
+  } catch (err) {
+    if (err instanceof ApiRequestError && err.code === 'no_demo_identity') return null;
+    throw err;
+  }
+}
+
+export const chooseDemoIdentity = (kind: DemoSide, key: string) =>
+  request('/demo/identity', DemoIdentitySchema, { method: 'POST', body: { kind, key } });
+
+export const clearDemoIdentity = () =>
+  request('/demo/identity', nothing, { method: 'DELETE' });
+
+export const getMatches = (job?: string) =>
+  request(`/demo/matches${job ? `?job=${segment(job)}` : ''}`, MatchListSchema);
+
+const matchPath = (candidate: string, job: string) =>
+  `/demo/matches/${segment(candidate)}/${segment(job)}`;
+
+export const getMatchDetail = (candidate: string, job: string) =>
+  request(matchPath(candidate, job), MatchDetailSchema);
+
+export const answerMatch = (candidate: string, job: string, answer: Answer) =>
+  request(`${matchPath(candidate, job)}/answer`, MatchDetailSchema, {
+    method: 'PUT',
+    body: { answer },
+  });
+
+export const confirmInterviewStage = (candidate: string, job: string) =>
+  request(`${matchPath(candidate, job)}/confirm-interview`, MatchDetailSchema, { method: 'POST' });
+
+export const getMessages = (candidate: string, job: string) =>
+  request(`${matchPath(candidate, job)}/messages`, MessageListSchema);
+
+export const postMessage = (candidate: string, job: string, body: string) =>
+  request(`${matchPath(candidate, job)}/messages`, MessageListSchema, {
+    method: 'POST',
+    body: { body },
+  });
+
+export const getInterviews = () => request('/demo/interviews', InterviewListSchema);
+
+export const saveInterview = (candidate: string, job: string, input: InterviewInput) =>
+  request(`${matchPath(candidate, job)}/interview`, MatchDetailSchema, {
+    method: 'PUT',
+    body: input,
+  });
+
+export const confirmInterviewSlot = (candidate: string, job: string, slotId: string) =>
+  request(`${matchPath(candidate, job)}/interview/confirm`, MatchDetailSchema, {
+    method: 'POST',
+    body: { slotId },
+  });
+
+export const getOffers = () => request('/demo/offers', OfferListSchema);
+
+export const getOffer = (id: string) => request(`/demo/offers/${segment(id)}`, OfferSchema);
+
+export const saveOfferDraft = (candidate: string, job: string, input: OfferInput) =>
+  request(`${matchPath(candidate, job)}/offer`, MatchDetailSchema, { method: 'PUT', body: input });
+
+export const offerAction = (id: string, action: 'share' | 'accept' | 'decline') =>
+  request(`/demo/offers/${segment(id)}/${action}`, OfferSchema, { method: 'POST' });
+
+export const getPreferences = () => request('/demo/profile/preferences', PreferencesSchema);
+
+export const savePreferences = (preferences: Preferences) =>
+  request('/demo/profile/preferences', PreferencesSchema, { method: 'PUT', body: preferences });

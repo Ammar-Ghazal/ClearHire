@@ -14,9 +14,10 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { demoCandidates, demoEmployers, demoJobs } from '../db/schema.js';
+import { demoCandidates, demoEmployers, demoJobs, jobPriorityOverrides } from '../db/schema.js';
 import { isDemoOperator } from '../env.js';
 import { clearPriorityOverride, setPriorityOverride } from '../lib/assessments.js';
+import { currentDemoIdentity } from '../lib/demo-identity.js';
 import type { ResumeSource } from '../lib/demo-import.js';
 import { transientRepos } from '../lib/demo-prepare.js';
 import {
@@ -48,6 +49,23 @@ async function requireOperator(request: FastifyRequest, reply: FastifyReply): Pr
     return false;
   }
   return true;
+}
+
+/** Priorities belong to the posting's employer (as a demo identity) or a demo operator. */
+async function requirePriorityEditor(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<boolean> {
+  const identity = await currentDemoIdentity(request);
+  const id = (request.params as { id?: unknown }).id;
+  if (identity?.kind === 'employer' && typeof id === 'string') {
+    const [job] = await db
+      .select({ employerId: demoJobs.employerId })
+      .from(demoJobs)
+      .where(eq(demoJobs.id, id));
+    if (job?.employerId === identity.key) return true;
+  }
+  return requireOperator(request, reply);
 }
 
 // The list never loads prepared snapshots or resume text.
@@ -136,6 +154,7 @@ function jobSummary({ job, employer }: JobWithEmployer): DemoJobSummary {
       name: employer.name,
       url: employer.url,
       description: employer.description,
+      location: employer.location,
     },
     location: job.location,
     sourceUrl: job.sourceUrl,
@@ -258,26 +277,52 @@ export async function demoRoutes(app: FastifyInstance) {
     return started(reply, run);
   });
 
+  /** Priorities are edited only on an in-scope posting with a current analysis. */
+  async function editableJob(reply: FastifyReply, id: string) {
+    const [row] = await jobsWithEmployers().where(eq(demoJobs.id, id));
+    if (!row) {
+      send(reply, 404, 'not_found', 'No demo job with this id');
+      return null;
+    }
+    if (!row.job.inScope) {
+      send(reply, 409, 'out_of_scope', 'This posting is out of scope');
+      return null;
+    }
+    const state = await jobState(row.job);
+    if (!state.assessment) {
+      send(reply, 409, 'job_not_current', 'Analyze this job before changing priorities');
+      return null;
+    }
+    return { row, assessment: state.assessment };
+  }
+
   app.put('/demo/jobs/:id/priorities/:skillId', async (request, reply) => {
-    if (!(await requireOperator(request, reply))) return reply;
+    if (!(await requirePriorityEditor(request, reply))) return reply;
     const params = PriorityParams.safeParse(request.params);
     const body = PriorityBody.safeParse(request.body);
     if (!params.success || !body.success) {
       return send(reply, 400, 'invalid_input', 'Invalid priority change');
     }
-    const [row] = await jobsWithEmployers().where(eq(demoJobs.id, params.data.id));
-    if (!row) return send(reply, 404, 'not_found', 'No demo job with this id');
-    if (!row.job.inScope) return send(reply, 409, 'out_of_scope', 'This posting is out of scope');
-    const state = await jobState(row.job);
-    if (!state.assessment) {
-      return send(reply, 409, 'job_not_current', 'Analyze this job before changing priorities');
-    }
-    if (!state.assessment.requirements.some((r) => r.skillId === params.data.skillId)) {
+    const editable = await editableJob(reply, params.data.id);
+    if (!editable) return reply;
+    const { row, assessment } = editable;
+    if (!assessment.requirements.some((r) => r.skillId === params.data.skillId)) {
       return send(reply, 422, 'not_a_requirement', 'This skill is not a requirement of the job');
     }
     const { id, skillId } = params.data;
     if (body.data.priority === null) await clearPriorityOverride(id, skillId);
     else await setPriorityOverride({ jobKey: id, skillId, priority: body.data.priority });
     return jobDetail(row);
+  });
+
+  app.delete('/demo/jobs/:id/priorities', async (request, reply) => {
+    if (!(await requirePriorityEditor(request, reply))) return reply;
+    const params = IdParams.safeParse(request.params);
+    if (!params.success) return send(reply, 400, 'invalid_input', 'Invalid job id');
+    const editable = await editableJob(reply, params.data.id);
+    if (!editable) return reply;
+    // One statement, so every override is reset together.
+    await db.delete(jobPriorityOverrides).where(eq(jobPriorityOverrides.jobKey, params.data.id));
+    return jobDetail(editable.row);
   });
 }

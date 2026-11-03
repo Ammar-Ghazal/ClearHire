@@ -1,6 +1,6 @@
 # ClearHire local setup
 
-About 20 minutes. At the end you have the web app on http://localhost:5173, the API on port 3001, Postgres in Docker, and "Sign in with GitHub" working.
+About 20 minutes. At the end you have the web app on http://localhost:5173 (operator tools at `/operator`), the API on port 3001, Postgres in Docker, and "Sign in with GitHub" working.
 
 You do **not** need Meta, Modal, Neon, Vercel or ngrok accounts for this step.
 
@@ -77,9 +77,58 @@ Commit the generated `apps/api/drizzle/` folder; future schema changes add new m
 pnpm dev
 ```
 
-Open http://localhost:5173. The status pills should read **API: ok**, **Database: ok**, **GitHub App: ok**.
+Open http://localhost:5173/operator (operator tools). The status pills should read **API: ok**, **Database: ok**, **GitHub App: ok**.
 
-Click **Sign in with GitHub**, approve, and you land back on the page showing your avatar and verified emails. Then click **Install the ClearHire GitHub App and choose repositories**, pick a repo, and you return signed in with "Installed (installation …)".
+Click **Sign in with GitHub**, approve, and you land back on that page showing your avatar and verified emails. Then click **Install the ClearHire GitHub App and choose repositories**, pick a repo, and you return signed in with "Installed (installation …)".
+
+## Run the demo without GitHub or Muse (judges)
+
+About 5 minutes. You need only section 1's tools. No GitHub App, no Meta key, and no paid calls: the seed holds the imported sample profiles, postings and their saved analyses.
+
+```bash
+cp .env.example .env
+pnpm install
+pnpm gen:keys          # paste the two lines into .env
+```
+
+In `.env`, leave the `GITHUB_*` and `META_API_KEY` values empty and set `META_MODEL` to the model the saved analyses were made with, so they are recognised as current:
+
+```bash
+grep -m1 '"model"' data/demo/seed/demo-seed.json   # e.g. muse-spark-1.3-contributor
+```
+
+Then:
+
+```bash
+pnpm db:up
+pnpm db:migrate
+pnpm demo:seed load    # sample profiles, postings and saved analyses; never calls GitHub or Muse
+pnpm dev
+```
+
+Open http://localhost:5173 and choose a demo identity: a sample job seeker or employer. It is not a sign-in. Try a full flow by switching between the two sides of one match:
+
+1. Seeker answers Yes or Maybe; employer answers. Two Yes answers open Interview; any Maybe opens Discussion, where both confirm to move on.
+2. Employer proposes interview times (Interviews page); seeker confirms one.
+3. Employer drafts and shares an offer from the match; seeker accepts or declines it on the Offers page.
+
+Scores appear only where both the seeker and the posting have a current saved analysis; every other match names why it has none (for example "Not analyzed yet"). Priorities can be edited on a posting that has a current analysis.
+
+### Reset the demo
+
+```bash
+pnpm demo:reset
+```
+
+Clears answers, Discussion, interviews, offers, seeker preferences and priority changes. Sample profiles, postings and saved analyses stay, so scores are unchanged.
+
+### Refresh the seed (demo operators)
+
+After running analyses from the operator page (http://localhost:5173/operator, GitHub sign-in, paid), write the current database to the seed:
+
+```bash
+pnpm demo:seed export
+```
 
 ## Checks if something is off
 

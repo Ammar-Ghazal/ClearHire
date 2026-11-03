@@ -59,7 +59,7 @@ const {
   skillAssessments,
 } = schema;
 const { setPriorityOverride } = await import('./assessments.js');
-const { analysisTick, RunError, startCandidateRun, startJobRun } = await import(
+const { analysisTick, drainQueue, RunError, startCandidateRun, startJobRun } = await import(
   './demo-runner.js'
 );
 const { candidateState, demoMatch, jobState } = await import('./demo-results.js');
@@ -556,5 +556,33 @@ describe.runIf(up)('analysis worker (Postgres)', () => {
     const key = await seedCandidate('w3-unconfigured');
     expect(await analysisTick({ ...deps(museFetch(0)), scope: `${W}3-` })).toBe(false);
     expect(await candidate(key)).toMatchObject({ runStatus: 'idle' });
+  });
+});
+
+describe.runIf(up)('concurrent worker (Postgres)', () => {
+  it('grades independent subjects concurrently up to the limit, never one subject twice', async () => {
+    const scope = `${RUN}-p4-`;
+    const seekers = await Promise.all(['a', 'b', 'c'].map((s) => seedCandidate(`p4-${s}`)));
+    const jobs = [await seedJob('p4-x')];
+    const answer = museFetch();
+    let inFlight = 0;
+    let peak = 0;
+    let open!: () => void;
+    const two = new Promise<void>((resolve) => (open = resolve));
+    // Each request waits until two are in flight (or 2s pass), so overlap is deterministic.
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      peak = Math.max(peak, ++inFlight);
+      if (inFlight === 2) open();
+      await Promise.race([two, new Promise((resolve) => setTimeout(resolve, 2000))]);
+      inFlight--;
+      return answer(url, init);
+    });
+    const graded = await drainQueue({ ...deps(fetchMock as never), scope }, 2);
+    expect(graded).toBe(4);
+    expect(peak).toBe(2);
+    expect(answer).toHaveBeenCalledTimes(4);
+    for (const key of seekers) expect(await candidate(key)).toMatchObject({ runStatus: 'idle' });
+    for (const id of jobs) expect(await job(id)).toMatchObject({ runStatus: 'idle' });
+    expect(await drainQueue({ ...deps(museFetch(0)), scope }, 2)).toBe(0);
   });
 });

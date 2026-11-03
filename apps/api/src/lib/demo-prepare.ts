@@ -31,8 +31,24 @@ export const fullName = (r: { owner: string; repo: string }) => `${r.owner}/${r.
 /** A heartbeat older than this means the run's worker is gone. */
 export const RUN_STALE_MS = 120_000;
 
+/**
+ * GitHub's secondary limit is 900 REST points a minute (a GET is 1), shared by every concurrent
+ * run on the demo token, so request starts are spaced to stay under 800 a minute.
+ * https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+ */
+export const GITHUB_REQUEST_GAP_MS = 60_000 / 800;
+let nextRequestAt = 0;
+
+export async function paceGitHubRequest(now = Date.now()): Promise<void> {
+  const at = Math.max(now, nextRequestAt);
+  nextRequestAt = at + GITHUB_REQUEST_GAP_MS;
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+}
+
 export function demoOctokit(): Octokit {
-  return new Octokit(env.GITHUB_DEMO_TOKEN ? { auth: env.GITHUB_DEMO_TOKEN } : {});
+  const octokit = new Octokit(env.GITHUB_DEMO_TOKEN ? { auth: env.GITHUB_DEMO_TOKEN } : {});
+  octokit.hook.before('request', () => paceGitHubRequest());
+  return octokit;
 }
 
 /** Ingests one selection at its default-branch head; failures become an unavailable entry. */

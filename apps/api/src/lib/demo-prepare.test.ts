@@ -78,3 +78,25 @@ describe('prepareDemoCandidate', () => {
     expect(fetched).toEqual([]);
   });
 });
+
+describe('GitHub request pacing', () => {
+  it('spaces request starts across all demo runs to stay under 900 a minute', async () => {
+    const { GITHUB_REQUEST_GAP_MS, paceGitHubRequest } = await import('./demo-prepare.js');
+    expect(60_000 / GITHUB_REQUEST_GAP_MS).toBeLessThan(900);
+    vi.useFakeTimers();
+    try {
+      const t = Date.now() + 1_000_000;
+      const done: number[] = [];
+      const calls = [0, 1, 2].map((i) => paceGitHubRequest(t).then(() => done.push(i)));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toEqual([0]);
+      await vi.advanceTimersByTimeAsync(GITHUB_REQUEST_GAP_MS);
+      expect(done).toEqual([0, 1]);
+      await vi.advanceTimersByTimeAsync(GITHUB_REQUEST_GAP_MS);
+      await Promise.all(calls);
+      expect(done).toEqual([0, 1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

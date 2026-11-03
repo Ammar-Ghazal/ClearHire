@@ -3,7 +3,13 @@ import {
   assertDataUse,
   callMuse,
   candidateBody,
+  CANDIDATE_MAX_COMPLETION_TOKENS,
+  CONTEXT_WINDOW,
   costMicroUsd,
+  countInputTokens,
+  createRateLimiter,
+  DEFAULT_INPUT_TOKEN_CEILING,
+  MUSE_RATE_LIMITS,
   jobBody,
   JobOutputSchema,
   MuseError,
@@ -75,7 +81,12 @@ async function run(responses: (Response | Error)[]) {
     if (next instanceof Error) throw next;
     return next;
   });
-  const sleep = vi.fn(async () => {});
+  // A virtual clock: sleeping advances it, so limiter waits never take real time.
+  let now = 0;
+  const sleep = vi.fn(async (ms: number) => {
+    now += ms;
+  });
+  const limiter = createRateLimiter(MUSE_RATE_LIMITS, () => now, sleep);
   const memory = memoryLedger();
   const result = callMuse({
     config: CONFIG,
@@ -83,10 +94,11 @@ async function run(responses: (Response | Error)[]) {
     schema: JobOutputSchema,
     timeoutMs: 1000,
     ledger: memory.ledger,
+    limiter,
     fetch: fetchMock as unknown as typeof fetch,
     sleep,
   });
-  return { result, fetchMock, sleep, ...memory };
+  return { result, fetchMock, sleep, limiter, ...memory };
 }
 
 describe('pricing and data use', () => {
@@ -229,5 +241,152 @@ describe('callMuse', () => {
     const text = `${(err as Error).message} ${JSON.stringify(err)}`;
     expect(text).not.toContain(KEY);
     expect(text).not.toContain('Write tests');
+  });
+});
+
+describe('input and output budget', () => {
+  it('allows a 1M-token request with its full output inside the context window', () => {
+    expect(DEFAULT_INPUT_TOKEN_CEILING).toBe(1_000_000);
+    expect(DEFAULT_INPUT_TOKEN_CEILING + CANDIDATE_MAX_COMPLETION_TOKENS).toBeLessThanOrEqual(
+      CONTEXT_WINDOW,
+    );
+  });
+});
+
+describe('countInputTokens', () => {
+  it('counts the complete request: every message and the output schema', async () => {
+    const candidate = candidateBody('muse-spark-1.3', '<repo></repo>', 'Resume text');
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ object: 'response.input_tokens', input_tokens: 9597 })),
+    );
+    expect(await countInputTokens(CONFIG, candidate, fetchMock as never)).toBe(9597);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://muse.test/v1/responses/input_tokens');
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: 'muse-spark-1.3',
+      input: candidate.messages,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'candidate_assessment',
+          schema: candidate.response_format.json_schema.schema,
+          strict: true,
+        },
+      },
+    });
+  });
+
+  it('returns null rather than a guess when no count is available', async () => {
+    for (const response of [failure(404), new Response('not json'), new TypeError('failed')]) {
+      const fetchMock = vi.fn(async () => {
+        if (response instanceof Error) throw response;
+        return response;
+      });
+      expect(await countInputTokens(CONFIG, body, fetchMock as never)).toBeNull();
+    }
+  });
+});
+
+describe('rate limiter', () => {
+  function virtualClock() {
+    let now = 0;
+    const sleep = vi.fn(async (ms: number) => {
+      now += ms;
+    });
+    return { now: () => now, advance: (ms: number) => (now += ms), sleep };
+  }
+  const limits = { tokensPerMinute: 3_000_000, requestsPerMinute: 150 };
+  const FULL = DEFAULT_INPUT_TOKEN_CEILING + CANDIDATE_MAX_COMPLETION_TOKENS;
+
+  it('admits full requests up to 3M tokens a minute, then waits only for the oldest to expire', async () => {
+    const c = virtualClock();
+    const limiter = createRateLimiter(limits, c.now, c.sleep);
+    await limiter.acquire(FULL);
+    c.advance(10_000);
+    await limiter.acquire(FULL);
+    expect(c.now()).toBe(10_000);
+    await limiter.acquire(FULL);
+    // 3 x 1.032M exceeds 3M: the third waits exactly until the first leaves the window.
+    expect(c.now()).toBe(60_000);
+    expect(c.sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a charge with actual usage, freeing room early', async () => {
+    const c = virtualClock();
+    const limiter = createRateLimiter(limits, c.now, c.sleep);
+    const charge = await limiter.acquire(2_900_000);
+    charge(100_000);
+    await limiter.acquire(2_900_000);
+    expect(c.sleep).not.toHaveBeenCalled();
+  });
+
+  it('caps requests per minute', async () => {
+    const c = virtualClock();
+    const limiter = createRateLimiter({ ...limits, requestsPerMinute: 2 }, c.now, c.sleep);
+    await limiter.acquire(1);
+    await limiter.acquire(1);
+    await limiter.acquire(1);
+    expect(c.now()).toBe(60_000);
+  });
+
+  it('serves callers in order, so a large request is never starved by small ones', async () => {
+    const c = virtualClock();
+    const limiter = createRateLimiter(limits, c.now, c.sleep);
+    await limiter.acquire(2_500_000);
+    const order: string[] = [];
+    await Promise.all([
+      limiter.acquire(1_000_000).then(() => order.push('large')),
+      limiter.acquire(100).then(() => order.push('small')),
+    ]);
+    expect(order).toEqual(['large', 'small']);
+  });
+
+  it('holds every caller back after a 429 and rejects requests over the minute limit', async () => {
+    const c = virtualClock();
+    const limiter = createRateLimiter(limits, c.now, c.sleep);
+    limiter.pause(5_000);
+    await limiter.acquire(1);
+    expect(c.now()).toBe(5_000);
+    await expect(limiter.acquire(3_000_001)).rejects.toMatchObject({ code: 'input_too_large' });
+  });
+});
+
+describe('callMuse traffic', () => {
+  it('pauses the shared limiter on a 429, so the next caller waits for Retry-After', async () => {
+    const { result, limiter, sleep } = await run([failure(429, { 'retry-after': '60' })]);
+    await expect(result).rejects.toMatchObject({ code: 'rate_limited' });
+    await limiter.acquire(1);
+    expect(sleep).toHaveBeenCalledWith(60_000);
+  });
+
+  it('reserves counted input tokens and frees the limiter charge when the budget refuses', async () => {
+    let now = 0;
+    const limiter = createRateLimiter(MUSE_RATE_LIMITS, () => now, async (ms) => {
+      now += ms;
+    });
+    const reservations: number[] = [];
+    const ledger: MuseLedger = {
+      reserve: async (_attempt, reserved) => {
+        reservations.push(reserved);
+        throw new MuseError('budget_exceeded', 'cap');
+      },
+      settle: async () => {},
+    };
+    const fetchMock = vi.fn();
+    const call = callMuse({
+      config: CONFIG,
+      body,
+      schema: JobOutputSchema,
+      timeoutMs: 1000,
+      ledger,
+      limiter,
+      inputTokens: 900_000,
+      fetch: fetchMock as never,
+    });
+    await expect(call).rejects.toMatchObject({ code: 'budget_exceeded' });
+    expect(reservations).toEqual([reservationMicroUsd('muse-spark-1.3', 900_000, 8_000)]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await limiter.acquire(MUSE_RATE_LIMITS.tokensPerMinute);
+    expect(now).toBe(0);
   });
 });

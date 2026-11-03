@@ -184,3 +184,70 @@ describe('buildCandidateEvidence', () => {
     ]);
   });
 });
+
+describe('dependency context and coverage', () => {
+  it('gives manifest names, versions, sections and scripts as context, never as evidence', () => {
+    const manifest = JSON.stringify(
+      {
+        name: 'web-app',
+        scripts: { build: 'vite build', test: 'vitest' },
+        dependencies: { react: '^19.0.0', zod: '3.23.8' },
+        devDependencies: { vitest: '^3.0.0' },
+      },
+      null,
+      2,
+    );
+    const repo = fixtureRepo(
+      'one',
+      [
+        { path: 'package.json', content: manifest },
+        { path: 'requirements.txt', content: 'django==4.2\n' },
+        { path: 'src/a.ts', content: sourceLines(10) },
+      ],
+      [
+        { sha: 'c1', path: 'src/a.ts', start: 1, end: 3 },
+        { sha: 'c2', path: 'package.json', start: 1, end: 5 },
+      ],
+    );
+    const evidence = buildCandidateEvidence(fixtureCandidate([repo]), LARGE);
+    expect(evidence.rendered).toContain(
+      'dependencies (context only; installed packages were not sent and prove no skill):\n' +
+        '- package.json (npm, web-app): dependencies: react ^19.0.0, zod 3.23.8; ' +
+        'devDependencies: vitest ^3.0.0; scripts: build, test\n' +
+        '- requirements.txt (requirements): requirements: django ==4.2',
+    );
+    expect(evidence.items.some((i) => i.path === 'package.json')).toBe(false);
+    expect(evidence.citableCount).toBe(1);
+    expect(evidence.coverage.evidence).toBe('complete');
+  });
+
+  it('cites lines in unpaired tests and reports lines in whole-file exclusions as omissions', () => {
+    const minified = `export const x = '${'x'.repeat(1001)}';\nexport const y = 1;\n`;
+    const repo = fixtureRepo(
+      'one',
+      [
+        { path: 'src/a.ts', content: sourceLines(10) },
+        { path: 'src/bundle.ts', content: minified },
+        { path: 'tests/flow.test.ts', content: "import { a } from 'pkg';\ntest('a', () => {});\n" },
+      ],
+      [
+        { sha: 'c1', path: 'tests/flow.test.ts', start: 1, end: 2 },
+        { sha: 'c2', path: 'src/bundle.ts', start: 1, end: 2 },
+      ],
+    );
+    const evidence = buildCandidateEvidence(fixtureCandidate([repo]), LARGE);
+    expect(evidence.items.filter((i) => i.kind === 'attributed').map((i) => i.path)).toEqual([
+      'tests/flow.test.ts',
+    ]);
+    expect(evidence.coverage.omissions).toEqual([
+      {
+        repo: 'octo/one',
+        path: 'src/bundle.ts',
+        reason: 'attributed_not_stored',
+        startLine: 1,
+        endLine: 2,
+      },
+    ]);
+    expect(evidence.coverage.evidence).toBe('sampled');
+  });
+});

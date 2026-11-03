@@ -74,7 +74,13 @@ export function toIngestError(err: unknown, step: string, signal: AbortSignal): 
   return new IngestError('upstream_error', `GitHub request failed during ${step}`, status);
 }
 
-/** Snapshot of `owner/repo` at `ref` (default branch when omitted). Requests run one at a time. */
+/**
+ * Blob downloads in flight per repository. One at a time, recorded runs of 413-869-file repositories
+ * hit the 120s timeout; the request rate itself is paced by the Octokit (see demoOctokit).
+ */
+export const BLOB_CONCURRENCY = 4;
+
+/** Snapshot of `owner/repo` at `ref` (default branch when omitted). */
 export async function ingestRepo(
   octokit: Octokit,
   target: { owner: string; repo: string; ref?: string },
@@ -135,7 +141,7 @@ export async function ingestRepo(
 
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   const files: RepoSnapshot['files'] = [];
-  for (const entry of kept) {
+  async function fetchBlob(entry: TreeEntry) {
     const { data: blob } = await call('getBlob', () =>
       octokit.rest.git.getBlob({ owner, repo, file_sha: entry.sha, request }),
     );
@@ -149,14 +155,27 @@ export async function ingestRepo(
       content = decoder.decode(bytes);
     } catch {
       skipped.push({ path: entry.path, reason: 'not_text' });
-      continue;
+      return;
     }
     if (content.includes('\0')) {
       skipped.push({ path: entry.path, reason: 'not_text' });
-      continue;
+      return;
     }
     files.push({ path: entry.path, sha: entry.sha, content });
   }
+  // A few blobs in flight; results are sorted below, so arrival order never matters.
+  let next = 0;
+  const worker = async () => {
+    while (next < kept.length) {
+      try {
+        await fetchBlob(kept[next++]!);
+      } catch (err) {
+        next = kept.length;
+        throw err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(BLOB_CONCURRENCY, kept.length) }, worker));
 
   const byPath = (a: { path: string }, b: { path: string }) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0;

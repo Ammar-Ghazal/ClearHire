@@ -2,10 +2,10 @@
 // conditional on that run's token, so a stale worker can neither overwrite a newer run nor start a
 // paid request. Repository code is fetched per run and only held in memory. Assessment locks,
 // caching and spend caps stay in analyzeCandidate/analyzeJob. The worker grades each subject that
-// has no result yet, one at a time; failures are never retried automatically.
+// has no result yet, a few at a time; failures are never retried automatically.
 import type { Octokit } from '@octokit/rest';
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, like, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, like, lt, ne, notInArray, or, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { demoCandidates, demoJobs, skillAssessments } from '../db/schema.js';
 import { env } from '../env.js';
@@ -294,12 +294,19 @@ async function enqueueUngraded(deps: RunDeps): Promise<void> {
     );
 }
 
-/** Runs one queued subject to completion; jobs first, since they are small. */
-async function runNextQueued(deps: RunDeps): Promise<boolean> {
+interface Queued {
+  table: Table;
+  key: string;
+  start: () => Promise<Started>;
+}
+
+/** The oldest queued subject not in `active`; jobs first, since they are small. */
+async function nextQueued(deps: RunDeps, active: ReadonlySet<string>): Promise<Queued | null> {
   const queuedIn = (table: Table) =>
     and(
       eq(table.runStatus, 'queued'),
       deps.scope ? like(keyColumn(table), `${deps.scope}%`) : undefined,
+      active.size > 0 ? notInArray(keyColumn(table), [...active]) : undefined,
     );
   const [job] = await db
     .select({ id: demoJobs.id })
@@ -315,7 +322,7 @@ async function runNextQueued(deps: RunDeps): Promise<boolean> {
         .where(queuedIn(demoCandidates))
         .orderBy(asc(demoCandidates.queuedAt))
         .limit(1);
-  const next = job
+  return job
     ? { table: demoJobs, key: job.id, start: () => startJobRun(job.id, { retry: false }, deps) }
     : candidate
       ? {
@@ -324,7 +331,10 @@ async function runNextQueued(deps: RunDeps): Promise<boolean> {
           start: () => startCandidateRun(candidate.key, { retry: false }, deps),
         }
       : null;
-  if (!next) return false;
+}
+
+/** Runs one queued subject to completion. */
+async function runQueued(next: Queued, deps: RunDeps): Promise<void> {
   const stillQueued = and(eq(keyColumn(next.table), next.key), eq(next.table.runStatus, 'queued'));
   try {
     const run = await next.start();
@@ -338,14 +348,57 @@ async function runNextQueued(deps: RunDeps): Promise<boolean> {
       .set({ runStatus: 'failed', runError: safeErrorCode(err), queuedAt: null })
       .where(stillQueued);
   }
-  return true;
 }
+
+const museReady = (deps: RunDeps) =>
+  Boolean((deps.runOptions?.model ?? env.META_MODEL) && env.META_API_KEY);
 
 /** One worker step: queue ungraded subjects, then grade the oldest queued one. */
 export async function analysisTick(deps: RunDeps = {}): Promise<boolean> {
-  if (!(deps.runOptions?.model ?? env.META_MODEL) || !env.META_API_KEY) return false;
+  if (!museReady(deps)) return false;
   await enqueueUngraded(deps);
-  return runNextQueued(deps);
+  const next = await nextQueued(deps, new Set());
+  if (next) await runQueued(next, deps);
+  return next !== null;
+}
+
+/**
+ * Subjects graded at once. A full candidate request reserves up to 1.03M of the 3M tokens a
+ * minute, so about three fit; the shared Muse limiter queues anything beyond, and the GitHub pacer
+ * spaces repository fetches, so more slots would only wait.
+ */
+export const WORKER_CONCURRENCY = 3;
+
+/**
+ * Grades queued subjects, up to `concurrency` at once, until none is left. A free slot takes the
+ * next subject immediately. Picks are serialized, so two slots never start the same subject.
+ */
+export async function drainQueue(
+  deps: RunDeps = {},
+  concurrency = WORKER_CONCURRENCY,
+): Promise<number> {
+  if (!museReady(deps)) return 0;
+  await enqueueUngraded(deps);
+  // Keys stay listed after their run, so a subject queued again mid-drain waits for the next one.
+  const active = new Set<string>();
+  let picking: Promise<unknown> = Promise.resolve();
+  let graded = 0;
+  const slot = async () => {
+    for (;;) {
+      const pick = picking.then(async () => {
+        const next = await nextQueued(deps, active);
+        if (next) active.add(next.key);
+        return next;
+      });
+      picking = pick.catch(() => {});
+      const next = await pick;
+      if (!next) return;
+      await runQueued(next, deps);
+      graded++;
+    }
+  };
+  await Promise.all(Array.from({ length: concurrency }, slot));
+  return graded;
 }
 
 /** Starts the in-process worker; returns a function that stops it. */
@@ -354,7 +407,7 @@ export function startAnalysisWorker(deps: RunDeps = {}): () => void {
   const timer = setInterval(() => {
     if (busy) return;
     busy = true;
-    void analysisTick(deps)
+    void drainQueue(deps)
       .catch((err: unknown) => deps.onError?.(err))
       .finally(() => (busy = false));
   }, WORKER_INTERVAL_MS);

@@ -661,3 +661,114 @@ describe.runIf(up)('assessments (Postgres)', () => {
     });
   });
 });
+
+const { costMicroUsd, estimateTokens, reservationMicroUsd } = await import('./muse.js');
+
+describe.runIf(up)('input budget and concurrency (Postgres)', () => {
+  const MODEL = 'muse-spark-1.3-contributor';
+  const counted = (n: number) => new Response(JSON.stringify({ input_tokens: n }), { status: 200 });
+  const sentAt = (fetchMock: ReturnType<typeof fakeFetch>, i: number) => {
+    const [url, init] = fetchMock.mock.calls[i] as unknown as [string, RequestInit];
+    return { url, body: JSON.parse(init.body as string) as Record<string, unknown> };
+  };
+  const reservedFor = async (assessmentId: string) =>
+    (
+      await db
+        .select({ reserved: museCalls.reservedMicroUsd })
+        .from(museCalls)
+        .where(eq(museCalls.assessmentId, assessmentId))
+    ).map((r) => r.reserved);
+  const bigRepo = () =>
+    fixtureRepo(
+      'big',
+      [
+        { path: 'src/a.ts', content: sourceLines(30) },
+        ...Array.from({ length: 20 }, (_, i) => ({
+          path: `src/m${i}.ts`,
+          content: sourceLines(120, `m${i}_`),
+        })),
+      ],
+      [{ sha: 'c1', path: 'src/a.ts', start: 1, end: 5 }],
+    );
+
+  it('counts the whole request near the ceiling, shrinks evidence to fit and reserves the count', async () => {
+    const fetchMock = fakeFetch(counted(52_000), counted(39_000), completion(CANDIDATE_OUTPUT));
+    const subject = { kind: 'demo' as const, key: `${RUN}-counted` };
+    const result = await analyzeCandidate(fixtureCandidate([bigRepo()], { subject }), {
+      ...OPTIONS,
+      inputTokenCeiling: 40_000,
+      fetch: fetchMock as never,
+    });
+    const [first, second, chat] = [0, 1, 2].map((i) => sentAt(fetchMock, i));
+    expect([first!.url, second!.url, chat!.url]).toEqual([
+      'https://muse.test/v1/responses/input_tokens',
+      'https://muse.test/v1/responses/input_tokens',
+      'https://muse.test/v1/chat/completions',
+    ]);
+    // What was counted is exactly what was sent, and the second count covers less evidence.
+    expect(chat!.body.messages).toEqual(second!.body.input);
+    expect(JSON.stringify(second!.body).length).toBeLessThan(JSON.stringify(first!.body).length);
+    expect(await reservedFor(result.assessmentId)).toEqual([
+      reservationMicroUsd(MODEL, 39_000, 32_000),
+    ]);
+    expect(result.assessment).toMatchObject({ status: 'partial', coverage: { evidence: 'sampled' } });
+    expect(result.assessment.coverage.omissions.some((o) => o.reason === 'budget')).toBe(true);
+  });
+
+  it('keeps the conservative estimate when no count is available', async () => {
+    const fetchMock = fakeFetch(
+      new Response('{}', { status: 404 }),
+      completion(CANDIDATE_OUTPUT),
+    );
+    const subject = { kind: 'demo' as const, key: `${RUN}-uncounted` };
+    const result = await analyzeCandidate(fixtureCandidate([attributedRepo()], { subject }), {
+      ...OPTIONS,
+      inputTokenCeiling: 30_000,
+      fetch: fetchMock as never,
+    });
+    const chat = sentAt(fetchMock, 1).body;
+    expect(await reservedFor(result.assessmentId)).toEqual([
+      reservationMicroUsd(MODEL, estimateTokens(chat), 32_000),
+    ]);
+    expect(result.assessment.coverage.evidence).toBe('complete');
+  });
+
+  it('grades different seekers concurrently, one run per subject, each on its own allowance', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let inFlight = 0;
+    let peak = 0;
+    const fetchMock = vi.fn(async () => {
+      peak = Math.max(peak, ++inFlight);
+      await gate;
+      inFlight--;
+      return completion(CANDIDATE_OUTPUT);
+    });
+    const subjects = ['para-a', 'para-b'].map((s) => ({ kind: 'demo' as const, key: `${RUN}-${s}` }));
+    const options = { ...OPTIONS, fetch: fetchMock as never };
+    const runs = subjects.map((subject) =>
+      analyzeCandidate(fixtureCandidate([attributedRepo()], { subject }), options),
+    );
+    await vi.waitFor(() => expect(peak).toBe(2));
+    await expect(
+      analyzeCandidate(fixtureCandidate([attributedRepo()], { subject: subjects[0] }), {
+        ...options,
+        fresh: true,
+      }),
+    ).rejects.toMatchObject({ code: 'in_progress' });
+    release();
+    await Promise.all(runs);
+    const cost = costMicroUsd(MODEL, {
+      promptTokens: 1000,
+      cachedTokens: 0,
+      completionTokens: 100,
+      reasoningTokens: 0,
+    });
+    for (const s of subjects) {
+      expect(await budget(`${NS}subject:candidate:demo:${s.key}`)).toMatchObject({
+        reservedMicroUsd: 0,
+        spentMicroUsd: cost,
+      });
+    }
+  });
+});

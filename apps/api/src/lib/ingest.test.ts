@@ -1,6 +1,6 @@
 import type { Octokit } from '@octokit/rest';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_LIMITS, IngestError, ingestRepo } from './ingest.js';
+import { BLOB_CONCURRENCY, DEFAULT_LIMITS, IngestError, ingestRepo } from './ingest.js';
 
 const TOKEN = 'ghu_secret_token';
 const target = { owner: 'octo', repo: 'demo' };
@@ -184,5 +184,36 @@ describe('ingestRepo', () => {
     fn.mockRejectedValueOnce(error);
     const err = await ingestError(ingestRepo(octokit, target));
     expect(err.code).toBe(code);
+  });
+});
+
+describe('ingestRepo concurrency', () => {
+  it('downloads at most BLOB_CONCURRENCY blobs at once and returns them in path order', async () => {
+    const files = Array.from({ length: 20 }, (_, i) => ({ path: `src/f${19 - i}.ts` }));
+    const { octokit, rest } = fakeOctokit(files);
+    const serve = rest.git.getBlob.getMockImplementation()!;
+    let inFlight = 0;
+    let peak = 0;
+    rest.git.getBlob.mockImplementation(async (args) => {
+      peak = Math.max(peak, ++inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      inFlight--;
+      return serve(args);
+    });
+    const snap = await ingestRepo(octokit, target);
+    expect(peak).toBe(BLOB_CONCURRENCY);
+    expect(rest.git.getBlob).toHaveBeenCalledTimes(20);
+    const paths = snap.files.map((f) => f.path);
+    expect(paths).toEqual([...paths].sort());
+  });
+
+  it('stops starting downloads after one fails', async () => {
+    const files = Array.from({ length: 20 }, (_, i) => ({ path: `src/f${i}.ts` }));
+    const { octokit, rest } = fakeOctokit(files);
+    rest.git.getBlob.mockImplementation(async () => {
+      throw httpError(500);
+    });
+    expect((await ingestError(ingestRepo(octokit, target))).code).toBe('upstream_error');
+    expect(rest.git.getBlob.mock.calls.length).toBeLessThanOrEqual(BLOB_CONCURRENCY);
   });
 });

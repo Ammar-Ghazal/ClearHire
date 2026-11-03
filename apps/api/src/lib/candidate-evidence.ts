@@ -14,6 +14,7 @@ import {
   splitLines,
   type AnalysisPackets,
   type Chunk,
+  type ManifestSummary,
 } from './packets.js';
 
 /** Bump when selection or rendering changes what the model sees for the same input. */
@@ -184,6 +185,18 @@ function attributionOf(entries: LineContribution[]): Attribution {
 
 const entryKey = (e: LineContribution) => `${e.repo}\0${e.path}\0${e.commitSha}`;
 
+/** `- path (ecosystem, package): section: name spec, ...; scripts: ...` from a parsed manifest. */
+function renderManifest(m: ManifestSummary): string {
+  const sections = new Map<string, string[]>();
+  for (const d of m.dependencies) {
+    sections.set(d.section, [...(sections.get(d.section) ?? []), `${d.name} ${d.spec}`.trim()]);
+  }
+  const parts = [...sections].map(([section, deps]) => `${section}: ${deps.join(', ')}`);
+  if (m.scripts && m.scripts.length > 0) parts.push(`scripts: ${m.scripts.join(', ')}`);
+  const label = m.name === undefined ? m.ecosystem : `${m.ecosystem}, ${m.name}`;
+  return `- ${m.path} (${label}): ${parts.length > 0 ? parts.join('; ') : 'none'}`;
+}
+
 interface FileCopy {
   repoIndex: number;
   path: string;
@@ -241,6 +254,11 @@ export function buildCandidateEvidence(
         omissions.push({ repo: repos[i]!.repo, ...o });
       }
     }
+    for (const f of p.files) {
+      if (f.status !== 'summary_excluded') continue;
+      const whole = { startLine: null, endLine: null };
+      omissions.push({ repo: repos[i]!.repo, path: f.path, reason: 'budget', ...whole });
+    }
   });
 
   // Group identical files across repositories; the first occurrence renders them.
@@ -257,9 +275,13 @@ export function buildCandidateEvidence(
   });
   // Chunk-eligible files map to their group even when this copy's own chunks were not emitted.
   const CHUNKED = new Set(['included', 'partial', 'excluded_budget']);
+  // Minified or generated files are never sent whole, but lines attributed in them are reported.
+  const WHOLE_FILE_EXCLUSIONS = new Set(['long_line', 'generated']);
+  const excludedFiles = new Set<string>();
   packets.forEach((p, repoIndex) => {
     for (const f of p.files) {
       if (CHUNKED.has(f.status)) groupOf.set(`${repoIndex}\0${f.path}`, f.sha256);
+      if (WHOLE_FILE_EXCLUSIONS.has(f.status)) excludedFiles.add(`${repoIndex}\0${f.path}`);
     }
   });
 
@@ -289,9 +311,20 @@ export function buildCandidateEvidence(
           provisional: c.provisional,
           aiCoauthorDeclared: c.aiCoauthorDeclared,
         };
-        // Manifests, docs and filtered files are never chunked, so they are not omissions.
+        // Summarized manifests, empty and ingest-filtered files hold no reviewable code.
         const hash = groupOf.get(`${repoIndex}\0${r.path}`);
-        if (hash === undefined) continue;
+        if (hash === undefined) {
+          if (excludedFiles.has(`${repoIndex}\0${r.path}`)) {
+            omissions.push({
+              repo,
+              path: r.path,
+              reason: 'attributed_not_stored',
+              startLine: r.start,
+              endLine: r.end,
+            });
+          }
+          continue;
+        }
         const stored = storedLines.get(hash);
         let missingStart: number | null = null;
         for (let n = r.start; n <= r.end + 1; n++) {
@@ -329,14 +362,14 @@ export function buildCandidateEvidence(
 
   repos.forEach((repoEvidence, repoIndex) => {
     const p = packets[repoIndex]!;
-    const deps = p.manifests.map(
-      (m) => `${m.path}: ${m.dependencies.map((d) => d.name).join(', ')}`,
-    );
     const out: string[] = [
       `<repo ref="${repoEvidence.ref}" name="${repoEvidence.repo}" commit="${repoEvidence.commitSha}" ` +
         `fork="${repoEvidence.fork}" owner_is_candidate="${repoEvidence.ownerIsCandidate}">`,
-      ...(deps.length > 0
-        ? [`dependencies (context only): ${escapeDelimiters(deps.join('; '))}`]
+      ...(p.manifests.length > 0
+        ? [
+            'dependencies (context only; installed packages were not sent and prove no skill):',
+            ...p.manifests.map((m) => escapeDelimiters(renderManifest(m))),
+          ]
         : []),
     ];
 

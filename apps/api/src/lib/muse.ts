@@ -26,10 +26,13 @@ export const MUSE_PRICING = {
 export type MuseModel = keyof typeof MUSE_PRICING;
 export const MUSE_MODELS = Object.keys(MUSE_PRICING) as [MuseModel, ...MuseModel[]];
 
+/** Every Muse model's window; input plus requested output must fit. https://dev.meta.ai/docs/models */
 export const CONTEXT_WINDOW = 1_048_576;
 export const PROMPT_VERSION = 3;
 export const SCHEMA_VERSION = 2;
-export const DEFAULT_INPUT_TOKEN_CEILING = 250_000;
+export const DEFAULT_INPUT_TOKEN_CEILING = 1_000_000;
+// 84 recorded candidate calls all stopped normally, the largest at 8,134 output tokens (reasoning
+// included), so 32k leaves room without crowding the window: 1M + 32k < 1,048,576.
 export const CANDIDATE_MAX_COMPLETION_TOKENS = 32_000;
 export const JOB_MAX_COMPLETION_TOKENS = 8_000;
 export const RETRY_AFTER_LIMIT_MS = 30_000;
@@ -78,7 +81,10 @@ export function assertDataUse(model: MuseModel, dataUses: DataUse[]): void {
   }
 }
 
-/** A rough character-based estimate; it does not guarantee actual token counts or spend. */
+/**
+ * A rough character-based estimate; it does not guarantee actual token counts or spend. Recorded
+ * calls used 0.57-0.87x of it, but non-ASCII text can exceed it, so near a limit use a count.
+ */
 export const estimateTokens = (body: unknown) => Math.ceil(JSON.stringify(body).length / 3);
 
 export interface Usage {
@@ -433,6 +439,9 @@ export interface CallOptions<T> {
   schema: z.ZodType<T>;
   timeoutMs: number;
   ledger: MuseLedger;
+  /** Counted input tokens, when known; otherwise the estimate sizes the reservation. */
+  inputTokens?: number;
+  limiter?: RateLimiter;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -446,6 +455,113 @@ export interface CallResult<T> {
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+// ---- Rate limiting ----
+
+/**
+ * Per-team limits: Contributor 3M TPM and 150 RPM, Standard 4M TPM and 3,000 RPM. The lower pair
+ * holds for either model, or both at once. https://dev.meta.ai/docs/pricing-rate-limits
+ */
+export const MUSE_RATE_LIMITS = { tokensPerMinute: 3_000_000, requestsPerMinute: 150 };
+const WINDOW_MS = 60_000;
+
+export interface RateLimiter {
+  /** Waits for room in the minute window; the returned function replaces the charge with usage. */
+  acquire(tokens: number): Promise<(actual: number) => void>;
+  /** Holds every caller back until `ms` from now, after the provider answers 429. */
+  pause(ms: number): void;
+}
+
+/** Sliding one-minute window, first come first served, so a large request is never starved. */
+export function createRateLimiter(
+  limits = MUSE_RATE_LIMITS,
+  clock = Date.now,
+  sleep = defaultSleep,
+): RateLimiter {
+  const window: { at: number; tokens: number }[] = [];
+  let pausedUntil = 0;
+  let queue: Promise<unknown> = Promise.resolve();
+
+  async function admit(tokens: number) {
+    for (;;) {
+      const now = clock();
+      while (window.length > 0 && window[0]!.at <= now - WINDOW_MS) window.shift();
+      let used = window.reduce((sum, e) => sum + e.tokens, 0);
+      let count = window.length;
+      let wait = pausedUntil - now;
+      if (wait <= 0) {
+        // Wait until enough of the oldest charges leave the window.
+        for (const e of window) {
+          if (count < limits.requestsPerMinute && used + tokens <= limits.tokensPerMinute) break;
+          used -= e.tokens;
+          count--;
+          wait = e.at + WINDOW_MS - now;
+        }
+        if (wait <= 0) {
+          const entry = { at: now, tokens };
+          window.push(entry);
+          return entry;
+        }
+      }
+      await sleep(wait);
+    }
+  }
+
+  return {
+    async acquire(tokens) {
+      if (tokens > limits.tokensPerMinute) {
+        throw new MuseError('input_too_large', 'Request exceeds the tokens-per-minute limit');
+      }
+      const turn = queue.then(() => admit(tokens));
+      queue = turn.catch(() => {});
+      const entry = await turn;
+      return (actual) => {
+        entry.tokens = actual;
+      };
+    },
+    pause(ms) {
+      pausedUntil = Math.max(pausedUntil, clock() + ms);
+    },
+  };
+}
+
+/** One limiter per process: worker runs, manual regrades and retries all call through callMuse. */
+// shortcut: per-process window; a second API instance would need a shared (database) limiter.
+export const museRateLimiter = createRateLimiter();
+
+// ---- Token counting ----
+
+const CountSchema = z.object({ input_tokens: z.number().int().nonnegative() });
+
+/**
+ * Input tokens for `body` from Meta's Responses counter, which applies the model's tokenizer and
+ * template to the same messages and schema; Chat Completions has no counter. It only tokenizes.
+ * Returns null when no count is available, so callers keep the estimate.
+ * https://dev.meta.ai/docs/token-counting
+ */
+export async function countInputTokens(
+  config: MuseConfig,
+  body: ChatBody,
+  doFetch: typeof fetch = fetch,
+): Promise<number | null> {
+  try {
+    const response = await doFetch(`${config.baseUrl.replace(/\/$/, '')}/responses/input_tokens`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: body.model,
+        input: body.messages,
+        text: { format: { type: 'json_schema', ...body.response_format.json_schema } },
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) return null;
+    const parsed = CountSchema.safeParse(safeJson(await response.text()));
+    return parsed.success ? parsed.data.input_tokens : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * One logical call: at most one automatic retry, and only after a 429, 500 or 503 response.
  * Timeouts, network failures, invalid or truncated output are returned as typed failures.
@@ -454,15 +570,21 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
   const { config, body, schema, timeoutMs, ledger } = options;
   const doFetch = options.fetch ?? fetch;
   const sleep = options.sleep ?? defaultSleep;
-  const reserved = reservationMicroUsd(
-    body.model,
-    estimateTokens(body),
-    body.max_completion_tokens,
-  );
+  const limiter = options.limiter ?? museRateLimiter;
+  const inputTokens = options.inputTokens ?? estimateTokens(body);
+  const reserved = reservationMicroUsd(body.model, inputTokens, body.max_completion_tokens);
   const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
 
   for (let attempt = 1; ; attempt++) {
-    const callId = await ledger.reserve(attempt, reserved);
+    // Rate-limit room first, so a long wait never holds a spend reservation.
+    const charge = await limiter.acquire(inputTokens + body.max_completion_tokens);
+    let callId: string;
+    try {
+      callId = await ledger.reserve(attempt, reserved);
+    } catch (err) {
+      charge(0);
+      throw err;
+    }
     const started = Date.now();
     const base = { httpStatus: null, finishReason: null, usage: null, responseId: null };
     const settle = (
@@ -509,6 +631,7 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
       if (RETRYABLE.has(status)) {
         const wait =
           retryAfterMs(response.headers.get('retry-after')) ?? 1000 + Math.random() * 1000;
+        if (status === 429) limiter.pause(wait);
         if (attempt === 1 && wait <= RETRY_AFTER_LIMIT_MS) {
           await sleep(wait);
           continue;
@@ -552,6 +675,7 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
       else error = new MuseError('invalid_output', 'Muse output did not match the schema');
     }
 
+    if (usage) charge(usage.promptTokens + usage.completionTokens);
     const cost = usage ? costMicroUsd(body.model, usage) : reserved;
     await settle({
       settlement: 'settled',

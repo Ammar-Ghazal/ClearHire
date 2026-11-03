@@ -33,8 +33,7 @@ export type FileStatus =
   | 'summary_excluded'
   | 'empty'
   | 'long_line'
-  | 'generated'
-  | 'unpaired';
+  | 'generated';
 
 export type RedactionKind =
   | 'private_key'
@@ -746,6 +745,10 @@ export function buildPackets(
     tests: [...(testsOf.get(path) ?? [])].sort(byCodeUnit),
     context: [...edges.get(path)!].sort(byFanIn).slice(0, opts.maxContextFiles),
   }));
+  // Tests no source claims (absolute or package imports) still show testing work: their own packets.
+  for (const path of [...unpaired].sort(byCodeUnit)) {
+    planned.push({ id: `t:${path}`, primary: [path], tests: [], context: [] });
+  }
   const supplemental = (kind: FileKind) =>
     files.filter((f) => f.kind === kind && f.exclusion === null && !summaries.has(f.path));
   planned.push({
@@ -757,14 +760,12 @@ export function buildPackets(
     context: [],
   });
 
-  // Chunk-eligible: eligible sources, paired tests, unsummarized manifests, CI and docs.
+  // Chunk-eligible: eligible sources, tests, unsummarized manifests, CI and docs.
   const chunksOf = new Map<string, Chunk[]>();
   for (const f of files) {
-    const eligible =
-      f.exclusion === null &&
-      !summaries.has(f.path) &&
-      (f.kind !== 'test' || !unpaired.has(f.path));
-    if (eligible) chunksOf.set(f.path, chunkFile(f, opts.chunkLines));
+    if (f.exclusion === null && !summaries.has(f.path)) {
+      chunksOf.set(f.path, chunkFile(f, opts.chunkLines));
+    }
   }
 
   // Budget: summaries first, then packets in order. Tests and context are only attempted once a
@@ -816,8 +817,7 @@ export function buildPackets(
     if (f.exclusion !== null) status = f.exclusion;
     else if (summaries.has(f.path)) {
       status = admittedSummaries.has(f.path) ? 'summarized' : 'summary_excluded';
-    } else if (unpaired.has(f.path)) status = 'unpaired';
-    else {
+    } else {
       const all = chunks!;
       const sent = all.filter((c) => emitted.has(c.id)).length;
       status = sent === all.length ? 'included' : sent === 0 ? 'excluded_budget' : 'partial';

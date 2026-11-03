@@ -46,6 +46,7 @@ import {
   canonicalJson,
   catalogueHash,
   CONTEXT_WINDOW,
+  countInputTokens,
   DEFAULT_INPUT_TOKEN_CEILING,
   estimateTokens,
   jobBody,
@@ -58,6 +59,7 @@ import {
   type ChatBody,
   type MuseLedger,
   type MuseModel,
+  type RateLimiter,
 } from './muse.js';
 import { CLEANER_VERSION, sha256Hex } from './packets.js';
 
@@ -89,6 +91,7 @@ export interface RunOptions {
   fresh?: boolean;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  limiter?: RateLimiter;
   timeoutMs?: number;
   /** Prefix for budget scopes, so tests never touch the real daily budget. */
   budgetNamespace?: string;
@@ -426,6 +429,7 @@ async function runClaimed<O, A>(
     body: ChatBody;
     schema: typeof CandidateOutputSchema | typeof JobOutputSchema;
     timeoutMs: number;
+    inputTokens?: number;
   },
   scopes: { scope: string; cap: number }[],
   verify: (output: O) => A & { status?: string },
@@ -445,6 +449,8 @@ async function runClaimed<O, A>(
       schema: call.schema as never,
       timeoutMs: options.timeoutMs ?? call.timeoutMs,
       ledger: dbLedger(row.id, call.body.model, scopes, row.startedAt),
+      ...(call.inputTokens !== undefined && { inputTokens: call.inputTokens }),
+      ...(options.limiter && { limiter: options.limiter }),
       ...(options.fetch && { fetch: options.fetch }),
       ...(options.sleep && { sleep: options.sleep }),
     });
@@ -464,18 +470,38 @@ async function runClaimed<O, A>(
 
 // ---- Candidates ----
 
-/** Fits all selected repositories and the resume into one request under the input ceiling. */
-function fitCandidate(prepared: PreparedCandidate, model: MuseModel, ceiling: number) {
+/**
+ * Fits all selected repositories and the resume into one request under the input ceiling, measured
+ * on the whole body: catalogue, rules, schema, resume, dependencies and code. Everything is tried
+ * first; evidence over the ceiling is sampled and reported as budget omissions.
+ */
+async function fitCandidate(
+  prepared: PreparedCandidate,
+  model: MuseModel,
+  ceiling: number,
+  options: RunOptions,
+  /** Data-use check that must pass before a count sends anything to Muse. */
+  beforeSend: () => void,
+) {
   const resume = prepared.resume?.text ?? null;
-  const fixed = estimateTokens(candidateBody(model, '', resume));
-  if (fixed >= ceiling)
+  if (estimateTokens(candidateBody(model, '', resume)) >= ceiling)
     throw new MuseError('input_too_large', 'Catalogue, rules and resume exceed the ceiling');
-  let evidenceChars = Math.floor((ceiling - fixed) * 3 * 0.9);
-  for (let i = 0; i < 6; i++) {
+  let evidenceChars = Number.MAX_SAFE_INTEGER;
+  for (let i = 0; i < 8; i++) {
     const evidence = buildCandidateEvidence(prepared, { evidenceChars });
     const body = candidateBody(model, evidence.rendered, resume);
-    if (estimateTokens(body) <= ceiling) return { evidence, body };
-    evidenceChars = Math.floor(evidenceChars * 0.8);
+    const estimate = estimateTokens(body);
+    // Below half the ceiling even a 2x underestimate fits; nearer, count exactly. A failed count
+    // keeps the estimate, which overstated every recorded request. Nothing is sent without evidence.
+    let inputTokens = estimate;
+    if (estimate > ceiling / 2 && evidence.citableCount > 0) {
+      beforeSend();
+      inputTokens = (await countInputTokens(museConfig(), body, options.fetch)) ?? estimate;
+    }
+    if (inputTokens <= ceiling) return { evidence, body, inputTokens };
+    // Shrink the evidence in proportion to the excess, a little more so it converges.
+    const scale = (ceiling / inputTokens) * 0.97;
+    evidenceChars = Math.floor(Math.min(evidenceChars, evidence.rendered.length) * scale);
   }
   throw new MuseError('input_too_large', 'Evidence could not be fitted under the input ceiling');
 }
@@ -520,14 +546,22 @@ export async function analyzeCandidate(
       'Input ceiling leaves no room for output in the context window',
     );
   }
-  const { evidence, body } = fitCandidate(prepared, model, ceiling);
-  const noEvidence = evidence.citableCount === 0;
   // Résumé text is restricted data, except demo résumés: the project owner approved sending those
   // to Contributor mode, including its training use. Checked before claim() so a refusal leaves no
   // pending row; the no-evidence branch sends nothing, so it needs no check.
-  if (!noEvidence && prepared.resume) {
+  const assertResume = () => {
+    if (!prepared.resume) return;
     assertDataUse(model, [prepared.subject.kind === 'demo' ? 'approved_public_demo' : 'restricted']);
-  }
+  };
+  const { evidence, body, inputTokens } = await fitCandidate(
+    prepared,
+    model,
+    ceiling,
+    options,
+    assertResume,
+  );
+  const noEvidence = evidence.citableCount === 0;
+  if (!noEvidence) assertResume();
   const { cacheKey } = candidateKey(
     prepared.subject,
     { repos: prepared.repos, resumeText: prepared.resume?.text ?? null },
@@ -578,7 +612,7 @@ export async function analyzeCandidate(
   const assessment = await runClaimed(
     row,
     options,
-    { body, schema: CandidateOutputSchema, timeoutMs: CANDIDATE_TIMEOUT_MS },
+    { body, schema: CandidateOutputSchema, timeoutMs: CANDIDATE_TIMEOUT_MS, inputTokens },
     scopesFor('candidate', prepared.subject, options.budgetNamespace),
     (output: ReturnType<typeof CandidateOutputSchema.parse>) =>
       scrubQuotedSource(

@@ -139,7 +139,7 @@ describe('classification', () => {
     expect(kinds).toEqual({
       '.github/workflows/ci.yml': ['ci', 'included'],
       'README.md': ['doc', 'included'],
-      'docs/a.test.ts': ['test', 'unpaired'],
+      'docs/a.test.ts': ['test', 'included'],
       'package.json': ['manifest', 'long_line'],
       'requirements-dev.txt': ['manifest', 'summarized'],
       'src/app.ts': ['source', 'included'],
@@ -403,9 +403,13 @@ describe('links and pairing', () => {
       'src/__tests__/unit/foo.test.ts',
     ]);
     expect(chunkPaths(out, packet(out, 'p:src/qux.ts')!.tests)).toEqual(['tests/qux.spec.ts']);
-    expect(status(out, 'src/bar.test.ts')).toBe('unpaired');
-    expect(status(out, 'pkg-b/baz.test.ts')).toBe('unpaired');
-    expect(status(out, 'tests/fixtures/data.ts')).toBe('unpaired');
+    // Unpaired tests are kept as their own packets, never attached to a guessed source.
+    for (const path of ['src/bar.test.ts', 'pkg-b/baz.test.ts', 'tests/fixtures/data.ts']) {
+      expect(status(out, path)).toBe('included');
+      expect(chunkPaths(out, packet(out, `t:${path}`)!.primary)).toEqual([path]);
+    }
+    expect(packet(out, 'p:src/bar.ts')!.tests).toEqual([]);
+    expect(packet(out, 'p:pkg-a/baz.ts')!.tests).toEqual([]);
   });
 
   it('ignores imports of excluded files for context and fan-in', () => {

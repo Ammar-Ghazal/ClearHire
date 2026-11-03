@@ -19,7 +19,7 @@ import {
   museSpendBudgets,
   skillAssessments,
 } from '../src/db/schema.js';
-import { SEEKER_SPEND_CAP_USD } from '../src/lib/assessments.js';
+import { CANDIDATE_SPEND_CAP_USD } from '../src/lib/assessments.js';
 import { SeedSchema } from '../src/lib/demo-seed.js';
 
 const FILE = fileURLToPath(new URL('../../../data/demo/seed/demo-seed.json', import.meta.url));
@@ -104,7 +104,7 @@ async function loadSeed() {
     for (const s of seed.spend) {
       await tx
         .insert(museSpendBudgets)
-        .values({ ...s, capMicroUsd: Math.round(SEEKER_SPEND_CAP_USD * 1e6) })
+        .values({ ...s, capMicroUsd: Math.round(CANDIDATE_SPEND_CAP_USD * 1e6) })
         .onConflictDoUpdate({
           target: museSpendBudgets.scope,
           set: {

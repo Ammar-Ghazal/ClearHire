@@ -90,15 +90,32 @@ export interface RepoEvidence {
 export interface Omission {
   repo: string;
   path: string;
-  reason: 'budget' | 'attributed_not_stored';
+  reason: 'budget' | 'attributed_not_stored' | 'not_processed';
   startLine: number | null;
   endLine: number | null;
+}
+
+/** One file as rendered, so a request too large to send whole can be split by file. */
+export interface EvidenceFile {
+  /** `repoIndex\0path` of the rendering (canonical) copy. */
+  key: string;
+  text: string;
+  /** Refs of the items rendered in this file. */
+  refs: string[];
+  /** Keys of its paired tests and imported files: context worth sending alongside it. */
+  related: string[];
+}
+
+export interface EvidenceLayout {
+  repos: { header: string; files: EvidenceFile[] }[];
+  unavailable: string[];
 }
 
 export interface CandidateEvidence {
   repos: RepoEvidence[];
   items: EvidenceItem[];
   rendered: string;
+  layout: EvidenceLayout;
   citableCount: number;
   coverage: {
     evidence: 'complete' | 'sampled';
@@ -359,6 +376,31 @@ export function buildCandidateEvidence(
   const duplicates: CandidateEvidence['coverage']['duplicates'] = [];
   const counters = { c: 0, a: 0, u: 0 };
   const blocks: string[] = [];
+  const layout: EvidenceLayout = { repos: [], unavailable: [] };
+  // Related files by path within each repository, from its packets' tests and context.
+  const keyOf = (repoIndex: number, path: string) => {
+    const hash = groupOf.get(`${repoIndex}\0${path}`);
+    const owner = hash === undefined ? undefined : groups.get(hash)?.[0];
+    return owner && `${owner.repoIndex}\0${owner.path}`;
+  };
+  const related = new Map<string, Set<string>>();
+  packets.forEach((p, repoIndex) => {
+    const pathOf = new Map(p.chunks.map((c) => [c.id, c.path]));
+    for (const packet of p.packets) {
+      const primary = new Set(packet.primary.map((id) => pathOf.get(id)!));
+      const others = new Set([...packet.tests, ...packet.context].map((id) => pathOf.get(id)!));
+      for (const path of primary) {
+        const key = keyOf(repoIndex, path);
+        if (!key) continue;
+        const set = related.get(key) ?? new Set<string>();
+        for (const other of others) {
+          const otherKey = keyOf(repoIndex, other);
+          if (otherKey && otherKey !== key) set.add(otherKey);
+        }
+        related.set(key, set);
+      }
+    }
+  });
 
   repos.forEach((repoEvidence, repoIndex) => {
     const p = packets[repoIndex]!;
@@ -373,6 +415,8 @@ export function buildCandidateEvidence(
         : []),
     ];
 
+    const headerLines = out.length;
+    const files: EvidenceFile[] = [];
     const owned = [...groups.entries()].filter(([, occ]) => occ[0]!.repoIndex === repoIndex);
     owned.sort(([, a], [, b]) => byCodeUnit(a[0]!.path, b[0]!.path));
     for (const [hash, occurrences] of owned) {
@@ -395,6 +439,8 @@ export function buildCandidateEvidence(
         alsoIn.length > 0
           ? ` also_in="${alsoIn.map((d) => `${refOf.get(d.repo)}:${d.path}`).join(' ')}"`
           : '';
+      const fileStart = out.length;
+      const itemStart = items.length;
       out.push(`<file path="${canonical.path}"${alsoAttr}>`);
       for (const chunk of [...chunks.values()].sort((a, b) => a.startLine - b.startLine)) {
         const ref = `c${++counters.c}`;
@@ -472,18 +518,29 @@ export function buildCandidateEvidence(
         out.push('</c>');
       }
       out.push('</file>');
+      const key = `${repoIndex}\0${canonical.path}`;
+      files.push({
+        key,
+        text: out.slice(fileStart).join('\n'),
+        refs: items.slice(itemStart).map((i) => i.ref),
+        related: [...(related.get(key) ?? [])].sort(byCodeUnit),
+      });
     }
+    layout.repos.push({ header: out.slice(0, headerLines).join('\n'), files });
     out.push('</repo>');
     blocks.push(out.join('\n'));
   });
   for (const r of unavailableRepos) {
-    blocks.push(`<repo name="${r.repo}" unavailable="${escapeDelimiters(r.reason)}"></repo>`);
+    const block = `<repo name="${r.repo}" unavailable="${escapeDelimiters(r.reason)}"></repo>`;
+    blocks.push(block);
+    layout.unavailable.push(block);
   }
 
   return {
     repos,
     items,
     rendered: blocks.join('\n'),
+    layout,
     citableCount: counters.a,
     coverage: {
       evidence: omissions.length > 0 ? 'sampled' : 'complete',
@@ -503,4 +560,19 @@ export function buildCandidateEvidence(
       ),
     },
   };
+}
+
+/**
+ * Renders the files in `keys` exactly as the whole evidence renders them, each repository with its
+ * header and dependencies. Repositories without files and unavailable ones go with the first part.
+ */
+export function renderEvidence(layout: EvidenceLayout, keys: ReadonlySet<string>, first: boolean) {
+  const blocks: string[] = [];
+  for (const repo of layout.repos) {
+    const files = repo.files.filter((f) => keys.has(f.key));
+    if (files.length === 0 && !(first && repo.files.length === 0)) continue;
+    blocks.push([repo.header, ...files.map((f) => f.text), '</repo>'].join('\n'));
+  }
+  if (first) blocks.push(...layout.unavailable);
+  return blocks.join('\n');
 }

@@ -166,9 +166,12 @@ describe('input keys', () => {
     expect(key([{ owner: 'octo', repo: 'one' }], 'Claims Kubernetes')).not.toBe(GOLDEN.candidate);
   });
 
-  it('give each demo seeker only their own lifetime $15 scope, outside the daily cap', () => {
+  it('give each candidate only their own lifetime $15 scope, outside the daily cap', () => {
     expect(scopesFor('candidate', { kind: 'demo', key: 'a' })).toEqual([
       { scope: 'subject:candidate:demo:a', cap: 15_000_000 },
+    ]);
+    expect(scopesFor('candidate', { kind: 'user', key: 'u' })).toEqual([
+      { scope: 'subject:candidate:user:u', cap: 15_000_000 },
     ]);
     expect(scopesFor('job', { kind: 'demo', key: 'j' }).map((s) => s.scope)).toEqual([
       expect.stringMatching(/^daily:/),
@@ -691,28 +694,98 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
       [{ sha: 'c1', path: 'src/a.ts', start: 1, end: 5 }],
     );
 
-  it('counts the whole request near the ceiling, shrinks evidence to fit and reserves the count', async () => {
-    const fetchMock = fakeFetch(counted(52_000), counted(39_000), completion(CANDIDATE_OUTPUT));
-    const subject = { kind: 'demo' as const, key: `${RUN}-counted` };
+  /** Counts at 0.8x the estimate; answers each part citing the first attributed ref it holds. */
+  const splitFetch = (failAt?: number) => {
+    let chats = 0;
+    return vi.fn(async (url: string, init: RequestInit) => {
+      const sent = JSON.parse(init.body as string) as { messages?: { content: string }[] };
+      if (url.endsWith('/responses/input_tokens')) {
+        return counted(Math.ceil(((init.body as string).length / 3) * 0.8));
+      }
+      if (++chats === failAt) return new Response('{}', { status: 400 });
+      const ref = /<a ref="(a\d+)"/.exec(sent.messages![2]!.content)?.[1];
+      return completion(
+        ref
+          ? {
+              ...CANDIDATE_OUTPUT,
+              repositories: [
+                {
+                  ...CANDIDATE_OUTPUT.repositories[0],
+                  contribution: { summary: 'Wrote', refs: [ref] },
+                },
+              ],
+              skills: [{ ...CANDIDATE_OUTPUT.skills[0], evidence_refs: [ref] }],
+            }
+          : { repositories: [], skills: [] },
+      );
+    });
+  };
+  const chatBodies = (fetchMock: ReturnType<typeof splitFetch>) =>
+    fetchMock.mock.calls
+      .filter(([url]) => url.endsWith('/chat/completions'))
+      .map(([, init]) => JSON.parse(init.body as string) as { messages: { content: string }[] })
+      .map((b) => b.messages[2]!.content);
+  const filesIn = (text: string) => [...text.matchAll(/<file path="([^"]+)"/g)].map((m) => m[1]!);
+
+  it('splits evidence over the ceiling across requests, sending every file', async () => {
+    const fetchMock = splitFetch();
+    const subject = { kind: 'demo' as const, key: `${RUN}-split` };
     const result = await analyzeCandidate(fixtureCandidate([bigRepo()], { subject }), {
       ...OPTIONS,
-      inputTokenCeiling: 40_000,
+      inputTokenCeiling: 30_000,
       fetch: fetchMock as never,
     });
-    const [first, second, chat] = [0, 1, 2].map((i) => sentAt(fetchMock, i));
-    expect([first!.url, second!.url, chat!.url]).toEqual([
-      'https://muse.test/v1/responses/input_tokens',
-      'https://muse.test/v1/responses/input_tokens',
-      'https://muse.test/v1/chat/completions',
+    const bodies = chatBodies(fetchMock);
+    expect(bodies.length).toBeGreaterThan(1);
+    // Nothing truncated: every file is sent, and each request repeats the repository header.
+    const sent = bodies.flatMap(filesIn);
+    const all = ['src/a.ts', ...Array.from({ length: 20 }, (_, i) => `src/m${i}.ts`)];
+    expect(new Set(sent)).toEqual(new Set(all));
+    expect(sent).toHaveLength(21);
+    bodies.forEach((b, i) => {
+      expect(b).toContain(`Request ${i + 1} of ${bodies.length}`);
+      expect(b).toContain('<repo ref="r1" name="octo/big"');
+    });
+    // Each request was counted under the ceiling and reserved at its own count.
+    const reserved = await reservedFor(result.assessmentId);
+    expect(reserved).toHaveLength(bodies.length);
+    const max = reservationMicroUsd(MODEL, 30_008, 32_000);
+    for (const r of reserved) expect(r).toBeLessThanOrEqual(max);
+    expect(result.assessment).toMatchObject({
+      status: 'complete',
+      coverage: { evidence: 'complete' },
+    });
+    expect(result.assessment.skills).toEqual([
+      expect.objectContaining({
+        skillId: 'unit-testing',
+        evidence: [expect.objectContaining({ ref: 'a1' })],
+      }),
     ]);
-    // What was counted is exactly what was sent, and the second count covers less evidence.
-    expect(chat!.body.messages).toEqual(second!.body.input);
-    expect(JSON.stringify(second!.body).length).toBeLessThan(JSON.stringify(first!.body).length);
-    expect(await reservedFor(result.assessmentId)).toEqual([
-      reservationMicroUsd(MODEL, 39_000, 32_000),
-    ]);
-    expect(result.assessment).toMatchObject({ status: 'partial', coverage: { evidence: 'sampled' } });
-    expect(result.assessment.coverage.omissions.some((o) => o.reason === 'budget')).toBe(true);
+  });
+
+  it('saves processed requests as partial when a later one fails, listing the rest', async () => {
+    const fetchMock = splitFetch(2);
+    const subject = { kind: 'demo' as const, key: `${RUN}-split-fail` };
+    const result = await analyzeCandidate(fixtureCandidate([bigRepo()], { subject }), {
+      ...OPTIONS,
+      inputTokenCeiling: 30_000,
+      fetch: fetchMock as never,
+    });
+    const bodies = chatBodies(fetchMock);
+    expect(bodies).toHaveLength(2);
+    const notProcessed = result.assessment.coverage.omissions.filter(
+      (o) => o.reason === 'not_processed',
+    );
+    expect(notProcessed.length).toBeGreaterThan(0);
+    for (const o of notProcessed) expect(filesIn(bodies[0]!)).not.toContain(o.path);
+    expect(result.assessment).toMatchObject({
+      status: 'partial',
+      coverage: { evidence: 'sampled' },
+    });
+    expect(result.assessment.skills[0]).toMatchObject({
+      skillId: 'unit-testing',
+      attributionLimitations: expect.arrayContaining(['sampled_evidence']),
+    });
   });
 
   it('keeps the conservative estimate when no count is available', async () => {
@@ -733,7 +806,7 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
     expect(result.assessment.coverage.evidence).toBe('complete');
   });
 
-  it('grades different seekers concurrently, one run per subject, each on its own allowance', async () => {
+  it('grades seekers concurrently, one run per subject, each on their own allowance', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     let inFlight = 0;
@@ -744,7 +817,10 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
       inFlight--;
       return completion(CANDIDATE_OUTPUT);
     });
-    const subjects = ['para-a', 'para-b'].map((s) => ({ kind: 'demo' as const, key: `${RUN}-${s}` }));
+    const subjects = ['para-a', 'para-b'].map((s) => ({
+      kind: 'demo' as const,
+      key: `${RUN}-${s}`,
+    }));
     const options = { ...OPTIONS, fetch: fetchMock as never };
     const runs = subjects.map((subject) =>
       analyzeCandidate(fixtureCandidate([attributedRepo()], { subject }), options),

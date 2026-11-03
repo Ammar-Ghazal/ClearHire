@@ -23,6 +23,7 @@ import {
 } from '../db/schema.js';
 import { env } from '../env.js';
 import {
+  isIncomplete,
   scrubQuotedSource,
   verifyCandidate,
   verifyJob,
@@ -32,10 +33,13 @@ import {
 import { ATTRIBUTION_VERSION } from './attribution.js';
 import {
   buildCandidateEvidence,
+  renderEvidence,
   SELECTION_VERSION,
+  type CandidateEvidence,
   type DataUse,
   type PreparedCandidate,
 } from './candidate-evidence.js';
+import { mergeAssessments, packParts } from './candidate-parts.js';
 import { matchAssessments } from './matching.js';
 import {
   assertDataUse,
@@ -56,6 +60,7 @@ import {
   PROMPT_VERSION,
   SCHEMA_VERSION,
   type AttemptSettlement,
+  type CandidateOutput,
   type ChatBody,
   type MuseLedger,
   type MuseModel,
@@ -75,8 +80,8 @@ type Saved = (typeof SAVED)[number];
 type Row = typeof skillAssessments.$inferSelect;
 const usd = (dollars: number) => Math.round(dollars * 1_000_000);
 
-/** Lifetime analysis spend per demo seeker, across all their repositories and runs. */
-export const SEEKER_SPEND_CAP_USD = 15;
+/** Lifetime analysis spend per candidate, demo seeker or user, across all repositories and runs. */
+export const CANDIDATE_SPEND_CAP_USD = 15;
 
 export interface PreparedJob extends JobInput {
   dataUse: DataUse;
@@ -135,10 +140,8 @@ export function scopesFor(
   ns = '',
 ) {
   const own = `${ns}subject:${kind}:${subject.kind}:${subject.key}`;
-  // A demo seeker spends only their own allowance; the shared daily cap must not block it.
-  if (kind === 'candidate' && subject.kind === 'demo') {
-    return [{ scope: own, cap: usd(SEEKER_SPEND_CAP_USD) }];
-  }
+  // A candidate spends only their own allowance; the shared daily cap must not block it.
+  if (kind === 'candidate') return [{ scope: own, cap: usd(CANDIDATE_SPEND_CAP_USD) }];
   const day = new Date().toISOString().slice(0, 10);
   return [
     { scope: `${ns}daily:${day}`, cap: usd(env.META_DAILY_CAP_USD) },
@@ -421,18 +424,21 @@ async function fail(id: string, run: Date, err: unknown) {
     .where(currentRun(id, run));
 }
 
-/** Runs one paid call for a freshly claimed row, keeping its heartbeat alive meanwhile. */
+/**
+ * Runs the paid calls for a freshly claimed row in order, keeping its heartbeat alive meanwhile.
+ * When a later call fails, the outputs so far are verified and saved, and `verify` reports what
+ * was not processed; a superseded run, or a failure before any output, saves nothing.
+ */
 async function runClaimed<O, A>(
   row: Row,
   options: RunOptions,
   call: {
-    body: ChatBody;
+    requests: { body: ChatBody; inputTokens?: number }[];
     schema: typeof CandidateOutputSchema | typeof JobOutputSchema;
     timeoutMs: number;
-    inputTokens?: number;
   },
   scopes: { scope: string; cap: number }[],
-  verify: (output: O) => A & { status?: string },
+  verify: (outputs: O[]) => A & { status?: string },
   fields: Partial<typeof skillAssessments.$inferInsert> = {},
 ): Promise<A> {
   const heartbeat = setInterval(() => {
@@ -443,18 +449,28 @@ async function runClaimed<O, A>(
       .catch(() => {});
   }, HEARTBEAT_MS);
   try {
-    const result = await callMuse({
-      config: museConfig(),
-      body: call.body,
-      schema: call.schema as never,
-      timeoutMs: options.timeoutMs ?? call.timeoutMs,
-      ledger: dbLedger(row.id, call.body.model, scopes, row.startedAt),
-      ...(call.inputTokens !== undefined && { inputTokens: call.inputTokens }),
-      ...(options.limiter && { limiter: options.limiter }),
-      ...(options.fetch && { fetch: options.fetch }),
-      ...(options.sleep && { sleep: options.sleep }),
-    });
-    const assessment = verify(result.data as O);
+    const outputs: O[] = [];
+    for (const { body, inputTokens } of call.requests) {
+      try {
+        const result = await callMuse({
+          config: museConfig(),
+          body,
+          schema: call.schema as never,
+          timeoutMs: options.timeoutMs ?? call.timeoutMs,
+          ledger: dbLedger(row.id, body.model, scopes, row.startedAt),
+          ...(inputTokens !== undefined && { inputTokens }),
+          ...(options.limiter && { limiter: options.limiter }),
+          ...(options.fetch && { fetch: options.fetch }),
+          ...(options.sleep && { sleep: options.sleep }),
+        });
+        outputs.push(result.data as O);
+      } catch (err) {
+        const superseded = err instanceof MuseError && err.code === 'previous_failure';
+        if (outputs.length === 0 || superseded || !(err instanceof MuseError)) throw err;
+        break;
+      }
+    }
+    const assessment = verify(outputs);
     const status = (assessment.status === 'partial' ? 'partial' : 'complete') as Saved;
     const saved = await complete(row.id, status, { ...fields, result: assessment }, row.startedAt);
     if (!saved)
@@ -470,40 +486,140 @@ async function runClaimed<O, A>(
 
 // ---- Candidates ----
 
+interface CandidateRequest {
+  body: ChatBody;
+  inputTokens: number;
+  /** Files this request holds; null when it holds all of them. */
+  keys: ReadonlySet<string> | null;
+}
+
+/** Request headroom under the ceiling when packing by estimate; each part is then counted. */
+const PACKING_HEADROOM = 0.97;
+
 /**
- * Fits all selected repositories and the resume into one request under the input ceiling, measured
- * on the whole body: catalogue, rules, schema, resume, dependencies and code. Everything is tried
- * first; evidence over the ceiling is sampled and reported as budget omissions.
+ * Plans the requests for all selected repositories and the resume, each measured on its whole body:
+ * catalogue, rules, schema, resume, dependencies and code. Everything goes in one request when it
+ * fits under the ceiling; otherwise the evidence is split across requests (see packParts), so no
+ * code is truncated or dropped.
  */
-async function fitCandidate(
+async function planCandidate(
   prepared: PreparedCandidate,
   model: MuseModel,
   ceiling: number,
   options: RunOptions,
   /** Data-use check that must pass before a count sends anything to Muse. */
   beforeSend: () => void,
-) {
+): Promise<{ evidence: CandidateEvidence; requests: CandidateRequest[] }> {
   const resume = prepared.resume?.text ?? null;
-  if (estimateTokens(candidateBody(model, '', resume)) >= ceiling)
+  const fixed = estimateTokens(candidateBody(model, '', resume));
+  if (fixed >= ceiling)
     throw new MuseError('input_too_large', 'Catalogue, rules and resume exceed the ceiling');
-  let evidenceChars = Number.MAX_SAFE_INTEGER;
-  for (let i = 0; i < 8; i++) {
-    const evidence = buildCandidateEvidence(prepared, { evidenceChars });
-    const body = candidateBody(model, evidence.rendered, resume);
-    const estimate = estimateTokens(body);
-    // Below half the ceiling even a 2x underestimate fits; nearer, count exactly. A failed count
-    // keeps the estimate, which overstated every recorded request. Nothing is sent without evidence.
-    let inputTokens = estimate;
-    if (estimate > ceiling / 2 && evidence.citableCount > 0) {
-      beforeSend();
-      inputTokens = (await countInputTokens(museConfig(), body, options.fetch)) ?? estimate;
-    }
-    if (inputTokens <= ceiling) return { evidence, body, inputTokens };
-    // Shrink the evidence in proportion to the excess, a little more so it converges.
-    const scale = (ceiling / inputTokens) * 0.97;
-    evidenceChars = Math.floor(Math.min(evidenceChars, evidence.rendered.length) * scale);
+  const evidence = buildCandidateEvidence(prepared, { evidenceChars: Number.MAX_SAFE_INTEGER });
+  const whole = candidateBody(model, evidence.rendered, resume);
+  const estimate = estimateTokens(whole);
+  // Below half the ceiling even a 2x underestimate fits; nearer, count exactly. A failed count
+  // keeps the estimate, which overstated every recorded request. Nothing is sent without evidence.
+  if (estimate <= ceiling / 2 || evidence.citableCount === 0) {
+    return { evidence, requests: [{ body: whole, inputTokens: estimate, keys: null }] };
   }
-  throw new MuseError('input_too_large', 'Evidence could not be fitted under the input ceiling');
+  beforeSend();
+  const count = async (body: ChatBody) =>
+    (await countInputTokens(museConfig(), body, options.fetch)) ?? estimateTokens(body);
+  const counted = await count(whole);
+  if (counted <= ceiling) {
+    return { evidence, requests: [{ body: whole, inputTokens: counted, keys: null }] };
+  }
+
+  // Pack by estimate scaled to the counted size, then count each request; halve any still over.
+  const ratio = counted / estimate;
+  const tokens = (text: string) => Math.ceil((JSON.stringify(text).length / 3) * ratio);
+  const budget = Math.floor(ceiling * PACKING_HEADROOM) - Math.ceil(fixed * ratio);
+  const partBody = (keys: ReadonlySet<string>, index: number, total: number) =>
+    candidateBody(
+      model,
+      `Request ${index + 1} of ${total} for this candidate: it holds some of the selected ` +
+        `repositories' files, and the others are assessed in separate requests. Assess only what ` +
+        `this request shows.\n${renderEvidence(evidence.layout, keys, index === 0)}`,
+      resume,
+    );
+  const pending = packParts(evidence.layout, tokens, budget);
+  const checked: { keys: Set<string>; inputTokens: number }[] = [];
+  while (pending.length > 0) {
+    const keys = pending.shift()!;
+    const inputTokens = await count(partBody(keys, checked.length, checked.length + 1));
+    if (inputTokens <= ceiling) {
+      checked.push({ keys, inputTokens });
+    } else if (keys.size > 1) {
+      const list = [...keys];
+      const half = Math.ceil(list.length / 2);
+      pending.unshift(new Set(list.slice(0, half)), new Set(list.slice(half)));
+    } else {
+      throw new MuseError('input_too_large', 'A single file exceeds the input ceiling');
+    }
+  }
+  // The request number was counted with fewer digits at most; a few tokens cover the difference.
+  return {
+    evidence,
+    requests: checked.map(({ keys, inputTokens }, i) => ({
+      body: partBody(keys, i, checked.length),
+      inputTokens: inputTokens + 8,
+      keys,
+    })),
+  };
+}
+
+/**
+ * Verifies each request's output against only the evidence it sent, then consolidates them. Files
+ * of requests that never completed are reported as not processed, which makes coverage partial.
+ */
+function verifyRequests(
+  outputs: CandidateOutput[],
+  requests: CandidateRequest[],
+  evidence: CandidateEvidence,
+  meta: { subject: PreparedCandidate['subject']; model: MuseModel },
+): CandidateAssessment {
+  const files = new Map(evidence.layout.repos.flatMap((r) => r.files.map((f) => [f.key, f])));
+  const processed = new Set(requests.slice(0, outputs.length).flatMap((r) => [...(r.keys ?? [])]));
+  const unprocessed = new Set(
+    requests
+      .slice(outputs.length)
+      .flatMap((r) => [...(r.keys ?? [])])
+      .filter((k) => !processed.has(k)),
+  );
+  const coverage =
+    unprocessed.size === 0
+      ? evidence.coverage
+      : {
+          ...evidence.coverage,
+          evidence: 'sampled' as const,
+          omissions: [
+            ...evidence.coverage.omissions,
+            ...[...unprocessed].map((key) => {
+              const [repoIndex, path] = key.split('\0') as [string, string];
+              return {
+                repo: evidence.repos[Number(repoIndex)]!.repo,
+                path,
+                reason: 'not_processed' as const,
+                startLine: null,
+                endLine: null,
+              };
+            }),
+          ],
+        };
+  const all = { ...evidence, coverage };
+  const verified = outputs.map((output, i) => {
+    const keys = requests[i]!.keys;
+    if (keys === null) return verifyCandidate(output, all, meta);
+    const refs = new Set([...keys].flatMap((k) => files.get(k)!.refs));
+    const items = all.items.filter((it) => refs.has(it.ref));
+    return verifyCandidate(output, { ...all, items }, meta);
+  });
+  return scrubQuotedSource(
+    verified.length === 1
+      ? verified[0]!
+      : mergeAssessments(verified, coverage, isIncomplete(coverage) ? 'partial' : 'complete'),
+    evidence,
+  );
 }
 
 /**
@@ -553,7 +669,7 @@ export async function analyzeCandidate(
     if (!prepared.resume) return;
     assertDataUse(model, [prepared.subject.kind === 'demo' ? 'approved_public_demo' : 'restricted']);
   };
-  const { evidence, body, inputTokens } = await fitCandidate(
+  const { evidence, requests } = await planCandidate(
     prepared,
     model,
     ceiling,
@@ -612,13 +728,10 @@ export async function analyzeCandidate(
   const assessment = await runClaimed(
     row,
     options,
-    { body, schema: CandidateOutputSchema, timeoutMs: CANDIDATE_TIMEOUT_MS, inputTokens },
+    { requests, schema: CandidateOutputSchema, timeoutMs: CANDIDATE_TIMEOUT_MS },
     scopesFor('candidate', prepared.subject, options.budgetNamespace),
-    (output: ReturnType<typeof CandidateOutputSchema.parse>) =>
-      scrubQuotedSource(
-        verifyCandidate(output, evidence, { subject: prepared.subject, model }),
-        evidence,
-      ),
+    (outputs: CandidateOutput[]) =>
+      verifyRequests(outputs, requests, evidence, { subject: prepared.subject, model }),
     { inputManifest },
   );
   return { assessmentId: row.id, assessment, cached: false };
@@ -670,9 +783,9 @@ export async function analyzeJob(
   const assessment = await runClaimed(
     row,
     options,
-    { body, schema: JobOutputSchema, timeoutMs: JOB_TIMEOUT_MS },
+    { requests: [{ body }], schema: JobOutputSchema, timeoutMs: JOB_TIMEOUT_MS },
     scopesFor('job', { kind: 'demo', key: job.jobKey }, options.budgetNamespace),
-    (output: ReturnType<typeof JobOutputSchema.parse>) => verifyJob(output, input, model),
+    ([output]: ReturnType<typeof JobOutputSchema.parse>[]) => verifyJob(output!, input, model),
   );
   return { assessmentId: row.id, assessment, cached: false };
 }

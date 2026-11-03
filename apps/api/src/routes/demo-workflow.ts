@@ -50,6 +50,7 @@ import {
   jobState,
   matchFromStates,
   priorityOverrides,
+  resumeTitle,
   type CandidateRow,
   type CandidateState,
   type JobRow,
@@ -103,7 +104,7 @@ async function requireIdentity(
 // ---- Pairs: every non-organization candidate × in-scope posting visible to the identity ----
 
 interface Pair {
-  candidate: { key: string; name: string; githubLogin: string };
+  candidate: { key: string; name: string; githubLogin: string; title: string | null };
   job: { id: string; title: string; location: string | null; employer: { id: string; name: string } };
 }
 
@@ -123,6 +124,8 @@ async function pairsFor(
       key: demoCandidates.key,
       name: demoCandidates.name,
       githubLogin: demoCandidates.githubLogin,
+      resumeStatus: demoCandidates.resumeStatus,
+      resumeText: demoCandidates.resumeText,
     })
     .from(demoCandidates)
     .where(
@@ -149,7 +152,11 @@ async function pairsFor(
       ),
     )
     .orderBy(demoJobs.id);
-  return jobs.flatMap((job) => candidates.map((candidate) => ({ candidate, job })));
+  const people = candidates.map(({ resumeStatus, resumeText, ...c }) => ({
+    ...c,
+    title: resumeStatus === 'extracted' ? resumeTitle(c.name, resumeText) : null,
+  }));
+  return jobs.flatMap((job) => people.map((candidate) => ({ candidate, job })));
 }
 
 // ---- Workflow state of those pairs ----

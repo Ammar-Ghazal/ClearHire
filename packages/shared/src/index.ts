@@ -656,7 +656,13 @@ export const ScoreSchema = z.object({
 export type Score = z.infer<typeof ScoreSchema>;
 
 const MatchPartiesSchema = z.object({
-  candidate: z.object({ key: z.string(), name: z.string(), githubLogin: z.string() }),
+  candidate: z.object({
+    key: z.string(),
+    name: z.string(),
+    githubLogin: z.string(),
+    /** The candidate's own résumé headline; null when absent or ambiguous. */
+    title: z.string().nullable(),
+  }),
   job: z.object({
     id: z.string(),
     title: z.string(),

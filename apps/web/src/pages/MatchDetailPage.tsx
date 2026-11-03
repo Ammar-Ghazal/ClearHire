@@ -66,7 +66,9 @@ export function MatchDetailPage() {
       title={side === 'employer' ? data.candidate.name : data.job.title}
       subtitle={
         side === 'employer'
-          ? `@${data.candidate.githubLogin} · ${data.job.title}`
+          ? [data.candidate.title, `@${data.candidate.githubLogin}`, `For: ${data.job.title}`]
+              .filter(Boolean)
+              .join(' · ')
           : [data.job.employer.name, data.job.location].filter(Boolean).join(' · ')
       }
       actions={<StageChip stage={stage} other={other} />}

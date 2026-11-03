@@ -23,6 +23,7 @@ const JOB = `${RUN}-job`;
 const SECOND_JOB = `${RUN}-job-2`;
 const CAND = `${RUN}-cand`;
 const ORG = `${RUN}-org`;
+const PLAIN = `${RUN}-plain`;
 const up = await databaseIsUp();
 const app = await buildApp();
 app.log.level = 'silent';
@@ -92,7 +93,14 @@ describe.runIf(up)('demo workflow (Postgres)', () => {
       profileSha256: 'p',
     };
     await db.insert(demoCandidates).values([
-      { ...candidateRow, key: CAND, name: 'Ada' },
+      {
+        ...candidateRow,
+        key: CAND,
+        name: 'Ada',
+        resumeStatus: 'extracted' as const,
+        resumeText: 'Ada\nAI Data Engineer\nToronto · ada@example.com',
+      },
+      { ...candidateRow, key: PLAIN, name: 'Bo' },
       { ...candidateRow, key: ORG, name: 'Lab', organization: true },
     ]);
 
@@ -113,6 +121,10 @@ describe.runIf(up)('demo workflow (Postgres)', () => {
     const list = MatchListSchema.parse((await call(employer, 'GET', '/demo/matches')).json());
     expect(list.every((m) => m.relationship.stage === 'needs_response')).toBe(true);
     expect(list.some((m) => m.candidate.key === ORG)).toBe(false);
+    // Each candidate shows their own résumé headline, never the posting's title.
+    const titleOf = (key: string) => list.find((m) => m.candidate.key === key)?.candidate.title;
+    expect(titleOf(CAND)).toBe('AI Data Engineer');
+    expect(titleOf(PLAIN)).toBeNull();
     expect(me).toMatchObject({
       identity: { kind: 'employer', location: 'Toronto, ON' },
       badges: { matches: list.length },

@@ -176,14 +176,9 @@ export function ScoreSummary({ score, compact }: { score: Score; compact?: boole
           Updating
         </Badge>
       )}
-      {score.usingLastSaved && !score.updateFailed && (
-        <Badge variant="outline" className="border-slate-300 text-slate-600">
-          Last saved result
-        </Badge>
-      )}
       {score.updateFailed && (
         <Badge variant="outline" className="border-amber-300 text-amber-800">
-          Update failed: last saved result
+          Update failed
         </Badge>
       )}
     </span>

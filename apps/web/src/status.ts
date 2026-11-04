@@ -118,7 +118,7 @@ export const REPO_STATES: Record<RepositoryBreakdown['state'], string> = {
 export const REPO_FLAGS: Record<RepositoryFlag, string> = {
   changed_since_assessed: 'New commits since it was graded',
   resume_changed: 'Graded with an earlier résumé',
-  attribution_limited: 'Authorship could not be fully checked',
+  attribution_limited: 'Sole authorship not verified',
   legacy_split: 'Waiting to be graded on its own',
 };
 

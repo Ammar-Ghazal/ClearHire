@@ -40,7 +40,7 @@ export function Shell() {
 
   const { identity: who, badges } = identity;
   const nav = [
-    { to: '/matches', label: 'Matches', icon: Inbox, badge: badges.matches },
+    { to: '/matches', label: 'Matches', icon: Inbox, badge: 0 },
     ...(who.kind === 'employer'
       ? [{ to: '/postings', label: 'Job postings', icon: Briefcase, badge: 0 }]
       : []),

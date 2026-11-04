@@ -29,7 +29,12 @@ export function MatchesPage() {
   const [params, setParams] = useSearchParams();
   const job = params.get('job') ?? undefined;
   const [filter, setFilter] = useState<StageGroup | 'all'>('all');
-  const [top, setTop] = useState<number>(TOP_MATCHES.default);
+  const [top, setTop] = useState<number>(() => {
+    const saved = Number(sessionStorage.getItem('clearhire.matches.top'));
+    return Number.isInteger(saved) && saved >= TOP_MATCHES.min && saved <= TOP_MATCHES.max
+      ? saved
+      : TOP_MATCHES.default;
+  });
   const { data, error, reload } = useLoad(() => getMatches(job), [job]);
   const postings = useLoad(
     () =>
@@ -41,12 +46,12 @@ export function MatchesPage() {
     [identity.kind, identity.key],
   );
 
+  const ranked = topMatches(data ?? [], top);
+  const inGroup = (match: MatchSummary, group: StageGroup | 'all') =>
+    group === 'all' || STAGES[match.relationship.stage].group === group;
   const count = (group: StageGroup | 'all') =>
-    data?.filter((m) => group === 'all' || STAGES[m.relationship.stage].group === group).length;
-  const filtered = (data ?? []).filter(
-    (m) => filter === 'all' || STAGES[m.relationship.stage].group === filter,
-  );
-  const shown = topMatches(filtered, top);
+    ranked.filter((match) => inGroup(match, group)).length;
+  const shown = ranked.filter((match) => inGroup(match, filter));
   // Scores are recomputed from saved results on every request, so polling picks up any change.
   usePoll(true, reload);
 
@@ -56,7 +61,7 @@ export function MatchesPage() {
       subtitle={
         identity.kind === 'employer'
           ? 'The most compatible sample job seekers for your postings.'
-          : 'The most compatible in-scope postings.'
+          : 'Jobs that best fit your demonstrated skills.'
       }
     >
       <div className="flex flex-wrap items-end gap-3">
@@ -87,7 +92,10 @@ export function MatchesPage() {
             max={TOP_MATCHES.max}
             step={1}
             value={top}
-            onChange={(e) => setTop(Number(e.target.value))}
+            onChange={(e) => {
+              sessionStorage.setItem('clearhire.matches.top', e.target.value);
+              setTop(Number(e.target.value));
+            }}
             className="h-9 w-40 accent-slate-900"
           />
         </label>
@@ -112,7 +120,7 @@ export function MatchesPage() {
         <>
           <MatchList matches={shown} side={identity.kind} />
           <p className="text-sm text-slate-500" aria-live="polite">
-            {unscoredSummary(filtered)}
+            {unscoredSummary(data.filter((match) => inGroup(match, filter)))}
           </p>
         </>
       ) : (

@@ -119,7 +119,14 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
               )}
               {r.flags.length > 0 && (
                 <p className="mt-1 text-sm text-amber-700">
-                  {r.flags.map((f) => REPO_FLAGS[f]).join(' · ')}
+                  {r.flags.map((flag, index) => (
+                    <span key={flag}>
+                      {index > 0 && ' · '}
+                      <span className={flag === 'attribution_limited' ? 'font-semibold text-red-700' : undefined}>
+                        {REPO_FLAGS[flag]}
+                      </span>
+                    </span>
+                  ))}
                 </p>
               )}
             </li>
@@ -173,13 +180,6 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
             )}
           </div>
         </dl>
-        {data.resume.limitations.length > 0 && (
-          <ul className="mt-3 list-disc pl-5 text-sm text-slate-500">
-            {data.resume.limitations.map((l) => (
-              <li key={l}>{l}</li>
-            ))}
-          </ul>
-        )}
       </Panel>
     </Page>
   );
@@ -196,7 +196,9 @@ function Skills({ candidate }: { candidate: DemoCandidate }) {
       <p className="text-sm text-slate-500">
         {candidate.freshness.state === 'current'
           ? 'No skills were demonstrated in attributed code.'
-          : freshnessLabel(candidate.freshness)}
+          : candidate.freshness.state === 'outdated'
+            ? 'No demonstrated skills to display.'
+            : freshnessLabel(candidate.freshness)}
       </p>
     );
   }

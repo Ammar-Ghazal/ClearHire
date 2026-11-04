@@ -539,8 +539,41 @@ export const DemoJobSummarySchema = z.object({
 export type DemoJobSummary = z.infer<typeof DemoJobSummarySchema>;
 export const DemoJobListSchema = z.array(DemoJobSummarySchema);
 
+/** Display order of a formatted posting's sections; the web app hides empty ones. */
+export const POSTING_SECTIONS = [
+  'overview',
+  'company',
+  'role',
+  'team',
+  'responsibilities',
+  'requirements',
+  'preferred',
+  'compensation',
+  'process',
+  'additional',
+  'legal',
+] as const;
+
+/** The posting text split into display sections. Display only: `text` stays the analysis input. */
+export const FormattedPostingSchema = z.object({
+  location: z.string().nullable(),
+  employmentType: z.string().nullable(),
+  workplace: z.string().nullable(),
+  salary: z.string().nullable(),
+  sections: z.array(
+    z.object({
+      key: z.enum(POSTING_SECTIONS),
+      blocks: z.array(
+        z.object({ kind: z.enum(['paragraph', 'item', 'subheading']), text: z.string() }),
+      ),
+    }),
+  ),
+});
+export type FormattedPosting = z.infer<typeof FormattedPostingSchema>;
+
 export const DemoJobSchema = DemoJobSummarySchema.extend({
   text: z.string(),
+  formatted: FormattedPostingSchema,
   retrievedOn: z.string().nullable(),
   sourceLimitations: z.array(z.string()),
   freshness: FreshnessSchema,

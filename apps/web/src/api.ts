@@ -14,6 +14,9 @@ import {
   MatchDetailSchema,
   MatchListSchema,
   MeSchema,
+  JudgeProfileSchema,
+  GitHubDeviceCodeSchema,
+  GitHubDevicePollSchema,
   MessageListSchema,
   OfferListSchema,
   OfferSchema,
@@ -39,8 +42,6 @@ import {
 } from '@clearhire/shared';
 
 export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api';
-
-export const loginUrl = `${API_BASE}/auth/github/login`;
 
 export async function getHealth(): Promise<Health | null> {
   try {
@@ -98,6 +99,14 @@ const segment = encodeURIComponent;
 
 // ---- Signed-in account: repository choice (grading live accounts is not available yet) ----
 
+export const startGitHubSignIn = () =>
+  request('/auth/github/device', GitHubDeviceCodeSchema, { method: 'POST' });
+export const pollGitHubSignIn = () =>
+  request('/auth/github/device/poll', GitHubDevicePollSchema, { method: 'POST' });
+export const getJudgeProfile = () => request('/me/profile', JudgeProfileSchema);
+export const analyzeJudgeProfile = () =>
+  request('/me/profile/analysis', AnalysisStartSchema, { method: 'POST' });
+
 export const getMyRepositories = (): Promise<PublicRepository[]> =>
   request('/me/repositories', PublicRepositoriesSchema);
 
@@ -139,7 +148,7 @@ export const startJobAnalysis = (id: string, regrade: boolean): Promise<Analysis
   });
 
 /** A seeker's own explicit regrade: fetches the named repositories again and grades them anew. */
-export const regradeCandidate = (key: string, repoIds: number[]): Promise<AnalysisStart> =>
+export const regradeCandidate = (key: string, repoIds?: number[]): Promise<AnalysisStart> =>
   request(`/demo/candidates/${segment(key)}/rerun`, AnalysisStartSchema, {
     method: 'POST',
     body: { repoIds },

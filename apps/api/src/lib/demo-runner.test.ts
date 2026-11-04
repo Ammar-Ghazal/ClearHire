@@ -213,7 +213,10 @@ const octokit = (type = 'User') =>
           data: { id: 101, login: username, type },
         })),
       },
-      repos: { listForUser: {} },
+      repos: {
+        listForUser: {},
+        get: vi.fn(async ({ repo }: { repo: string }) => ({ data: listed(repo) })),
+      },
     },
     paginate: vi.fn(async (_fn: unknown, { username }: { username: string }) =>
       (listings.get(username) ?? []).map(listed),
@@ -376,6 +379,39 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     expect(after.assessment!.skills[0]!.evidence.every((e) => e.repo !== 'octo/two')).toBe(true);
     expect(fetched).toHaveLength(3);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the saved markers when a selected repo becomes private during a judge regrade', async () => {
+    const key = await seedCandidate('judge-regrade', { selected: ['one'] });
+    const fetchMock = museFetch(1);
+    const client = octokit();
+    const runDeps = { ...deps(fetchMock), octokit: () => client, manualRetry: true };
+    await (await startCandidateRun(key, { retry: true }, runDeps)).done;
+    const original = await candidateState(await candidate(key));
+    expect(original.assessment?.skills).toHaveLength(1);
+
+    const response = { data: { ...listed('one'), private: true } } as Awaited<
+      ReturnType<typeof client.rest.repos.get>
+    >;
+    let finishCheck!: () => void;
+    vi.mocked(client.rest.repos.get).mockImplementationOnce(() =>
+      new Promise((resolve) => { finishCheck = () => resolve(response); }),
+    );
+    const run = await startCandidateRun(key, { retry: true, repoIds: [repoId('one')] }, runDeps);
+    try {
+      await expect(startCandidateRun(key, { retry: true }, runDeps)).rejects.toMatchObject({
+        code: 'in_progress',
+      });
+      await vi.waitFor(() => expect(finishCheck).toBeDefined());
+    } finally {
+      finishCheck?.();
+    }
+    await run.done;
+
+    expect(fetched).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await candidate(key)).toMatchObject({ runStatus: 'failed', runError: 'forbidden' });
+    expect((await candidateState(await candidate(key))).assessment).toEqual(original.assessment);
   });
 
   it('never persists repository code, in any table', async () => {

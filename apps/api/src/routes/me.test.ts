@@ -27,6 +27,7 @@ const listed = vi.hoisted(() =>
 );
 vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn(() => ({
+    hook: { before: vi.fn() },
     rest: { repos: { listForUser: {} } },
     paginate: vi.fn(async () => listed),
   })),
@@ -115,7 +116,14 @@ describe.runIf(up)('live repository selection (Postgres)', () => {
       await db.select().from(skillAssessments).where(eq(skillAssessments.subjectKey, user!.id)),
     ).toEqual([]);
 
+    await db.update(githubConnections).set({ accessTokenExpiresAt: new Date(0) })
+      .where(eq(githubConnections.userId, user!.id));
+    const expired = await app.inject({ method: 'POST', url: '/me/profile/analysis' });
+    expect(expired.statusCode).toBe(409);
+    expect(expired.json().error.code).toBe('github_reconnect');
+
     state.userId = null;
+    expect((await app.inject({ method: 'GET', url: '/me/profile' })).statusCode).toBe(401);
     expect((await app.inject({ method: 'GET', url: '/me/repositories' })).statusCode).toBe(401);
     state.userId = user!.id;
     await app.close();

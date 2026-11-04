@@ -42,6 +42,7 @@ import {
   processRepository,
   recordFailure,
   requestFresh,
+  requirePublicRepository,
   type RepositoryContext,
 } from './repository-runs.js';
 import { listPublicRepos, pickDefaults, refreshPushedAt, saveSelection } from './repository-selection.js';
@@ -74,6 +75,7 @@ export interface RunDeps {
   onError?: (err: unknown) => void;
   /** Limits the worker to subject keys with this prefix; tests share the demo database. */
   scope?: string;
+  manualRetry?: boolean;
 }
 
 export interface Started {
@@ -100,6 +102,7 @@ export function loggedDeps(log: Logger): RunDeps {
 
 /** Safe, fixed error codes only: exception messages never reach stored state or clients. */
 export function safeErrorCode(err: unknown): string {
+  if (err instanceof IngestError && err.status === 401) return 'github_reconnect';
   if (err instanceof MuseError || err instanceof IngestError || err instanceof RunError) {
     return err.code;
   }
@@ -195,7 +198,9 @@ function runOwned(
       const later = await work(touch);
       await finish(
         later
-          ? { runStatus: 'queued', runError: later.reason, queuedAt: later.at }
+          ? deps.manualRetry
+            ? { runStatus: 'failed', runError: later.reason }
+            : { runStatus: 'queued', runError: later.reason, queuedAt: later.at }
           : { runStatus: 'idle', runError: null },
       );
     } catch (err) {
@@ -314,7 +319,7 @@ async function gradeCandidate(
         metadataRefreshedAt: new Date(),
       })
       .where(eq(demoCandidates.key, key));
-    ctx = { subject, identity, resumeText, dataUse: 'approved_public_demo' };
+    ctx = { subject, identity, resumeText, dataUse: 'approved_public_demo', publicOnly: deps.manualRetry };
   } catch (err) {
     const at = quotaWait(err);
     if (at) return { at, reason: 'rate_limited' };
@@ -323,6 +328,7 @@ async function gradeCandidate(
 
   await syncLegacy(subject, resumeText, runOptions);
   let wait: Date | null = null;
+  let manualFailure: unknown;
   for (const s of await activeSelection(subject)) {
     // A requested regrade is recorded on the repository, so a resumed run still honours it.
     const targeted = s.freshRequestedAt !== null;
@@ -343,10 +349,15 @@ async function gradeCandidate(
       wait = quotaWait(err);
       if (wait) break;
       deps.onError?.(err);
+      manualFailure = err;
       await recordFailure(s, safeErrorCode(err));
       // The allowance or configuration stops every repository alike.
       if (err instanceof MuseError && ['budget_exceeded', 'not_configured'].includes(err.code)) break;
     }
+  }
+  if (deps.manualRetry) {
+    if (wait) return { at: wait, reason: 'rate_limited' };
+    if (manualFailure) throw manualFailure;
   }
   await syncLegacy(subject, resumeText, runOptions);
   await combineCandidate(subject, resumeText, runOptions);
@@ -406,6 +417,7 @@ export async function startReassessment(
       const identity = await resolveIdentity(octokit, current.githubLogin);
       for (const s of chosen as NonNullable<(typeof chosen)[number]>[]) {
         const [owner, repo] = s.fullName.split('/') as [string, string];
+        if (deps.manualRetry) await requirePublicRepository(octokit, owner, repo, s.repoId);
         const priorPaths = [
           ...new Set(
             (marker?.evidence ?? [])
@@ -539,7 +551,7 @@ async function enqueueUngraded(deps: RunDeps): Promise<void> {
       ),
     );
   // Unauthenticated GitHub allows 60 requests an hour, too few for a repository fetch.
-  if (!deps.octokit && !env.GITHUB_DEMO_TOKEN) return;
+  if (!deps.octokit) return;
   // Defaults not chosen yet, or a selected repository never graded, unfinished, or released from
   // an older result. Failed repositories wait for an explicit regrade.
   const r = repositorySelections;
@@ -633,7 +645,7 @@ export const METADATA_REFRESH_MS = 6 * 3_600_000;
  * starts grading; stops at a quota response.
  */
 export async function refreshMetadata(deps: RunDeps = {}, limit = 5): Promise<number> {
-  if (!deps.octokit && !env.GITHUB_DEMO_TOKEN) return 0;
+  if (!deps.octokit) return 0;
   try {
     assertGitHubAvailable();
   } catch {

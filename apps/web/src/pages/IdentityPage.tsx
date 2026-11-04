@@ -98,11 +98,10 @@ export function IdentityPage() {
         )}
 
         <p className="mt-12 text-sm text-slate-500">
-          Running the demo?{' '}
-          <Link to="/operator" className="underline underline-offset-4 hover:text-slate-900">
-            Operator tools
-          </Link>{' '}
-          (GitHub sign-in and analyses).
+          Want to match your own code?{' '}
+          <Link to="/my-profile" className="underline underline-offset-4 hover:text-slate-900">
+            Open My profile
+          </Link>.
         </p>
       </div>
     </main>

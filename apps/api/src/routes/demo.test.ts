@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { fixtureCandidate, fixtureRepo, sourceLines } from '../lib/candidate-fixtures.js';
 
 // Sessions, the allowlist and the runner are mocked; reads use real Postgres where available.
-const state = vi.hoisted(() => ({ login: null as string | null, operators: [] as string[] }));
+const state = vi.hoisted(() => ({ login: null as string | null, operators: [] as string[], connectionError: null as string | null }));
 vi.mock('../lib/sessions.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/sessions.js')>()),
   currentUserLogin: vi.fn(async () => state.login),
@@ -36,7 +36,17 @@ vi.mock('../env.js', async (importOriginal) => {
 });
 vi.mock('./auth.js', () => ({ authRoutes: async () => {} }));
 vi.mock('./health.js', () => ({ healthRoutes: async () => {} }));
-vi.mock('./me.js', () => ({ meRoutes: async () => {} }));
+const octokit = vi.hoisted(() => ({}));
+vi.mock('./me.js', () => ({
+  meRoutes: async () => {},
+  signedInGitHub: vi.fn(async (_request, reply) => {
+    if (state.login && !state.connectionError) return { octokit };
+    reply.code(state.login ? 409 : 401).send({
+      error: { code: state.connectionError ?? 'unauthenticated' },
+    });
+    return null;
+  }),
+}));
 vi.mock('../lib/demo-runner.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/demo-runner.js')>();
   return {
@@ -82,6 +92,7 @@ let fetchSpy: ReturnType<typeof spyOnFetch>;
 beforeEach(() => {
   state.login = null;
   state.operators = [];
+  state.connectionError = null;
   vi.mocked(startCandidateRun).mockReset();
   vi.mocked(startJobRun).mockReset();
   fetchSpy = spyOnFetch();
@@ -538,30 +549,26 @@ describe.runIf(up)('demo reads (Postgres)', () => {
     ).toHaveLength(0);
   });
 
-  it('lets a seeker regrade only their own profile, and operators any profile', async () => {
+  it('requires a valid GitHub connection to regrade a sample candidate', async () => {
     const instance = await app();
     vi.mocked(startCandidateRun).mockResolvedValue({ result: 'started', done: Promise.resolve() });
     const rerun = (key: string, cookies?: Record<string, string>, payload?: object) =>
       instance.inject({ method: 'POST', url: `/demo/candidates/${key}/rerun`, cookies, payload });
     const own = await demoIdentity(instance, 'candidate', KEY);
-    // Without repositories named, only what needs work is graded; named ones are regraded fresh.
-    expect((await rerun(KEY, own)).statusCode).toBe(202);
-    expect((await rerun(KEY, own, { repoIds: [7] })).statusCode).toBe(202);
-    expect(vi.mocked(startCandidateRun).mock.calls.map((c) => c.slice(0, 2))).toEqual([
-      [KEY, { retry: true }],
-      [KEY, { retry: true, repoIds: [7] }],
-    ]);
-    expect((await rerun('someone-else', own)).statusCode).toBe(401);
-    expect((await rerun(KEY, await demoIdentity(instance, 'employer', EMPLOYER))).statusCode).toBe(
-      401,
-    );
-    state.login = 'alice';
-    state.operators = ['alice'];
-    expect((await rerun('someone-else')).statusCode).toBe(202);
-    expect(startCandidateRun).toHaveBeenCalledTimes(3);
+    expect((await rerun(KEY, own)).statusCode).toBe(401);
+    state.login = 'judge';
+    state.connectionError = 'github_reconnect';
+    expect((await rerun(KEY, own)).statusCode).toBe(409);
+    expect(startCandidateRun).not.toHaveBeenCalled();
+    state.connectionError = null;
+    expect((await rerun('someone-else', own, { repoIds: [7] })).statusCode).toBe(202);
+    const [key, options, deps] = vi.mocked(startCandidateRun).mock.calls[0]!;
+    expect(key).toBe('someone-else');
+    expect(options).toEqual({ retry: true, repoIds: [7] });
+    expect(deps?.octokit?.()).toBe(octokit);
   });
 
-  it('accepts a seeker dispute of one marker for their own profile only, validated', async () => {
+  it('requires a GitHub connection and validates marker disputes', async () => {
     const instance = await app();
     vi.mocked(startReassessment).mockResolvedValue({ result: 'started', done: Promise.resolve() });
     const dispute = (payload: object, cookies?: Record<string, string>) =>
@@ -579,13 +586,14 @@ describe.runIf(up)('demo reads (Postgres)', () => {
     };
     state.login = null;
     const own = await demoIdentity(instance, 'candidate', KEY);
+    expect((await dispute(body, own)).statusCode).toBe(401);
+    state.login = 'judge';
     expect((await dispute(body, own)).statusCode).toBe(202);
     expect(vi.mocked(startReassessment).mock.calls[0]!.slice(0, 2)).toEqual([KEY, body]);
     expect((await dispute({ ...body, justification: '' }, own)).statusCode).toBe(400);
     expect((await dispute({ ...body, skillId: 'not-a-skill' }, own)).statusCode).toBe(400);
     expect((await dispute({ ...body, extra: true }, own)).statusCode).toBe(400);
-    const other = await demoIdentity(instance, 'employer', EMPLOYER);
-    expect((await dispute(body, other)).statusCode).toBe(401);
+
     expect(startReassessment).toHaveBeenCalledTimes(1);
   });
 });

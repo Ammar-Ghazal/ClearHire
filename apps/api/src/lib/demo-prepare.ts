@@ -2,7 +2,6 @@
 // repository code is never stored, so every run fetches the current default-branch commit again.
 // Never runs Muse.
 import { Octokit } from '@octokit/rest';
-import { env } from '../env.js';
 import type { CandidateIdentity } from './attribution.js';
 import type { PreparedCandidate, PreparedRepo, UnavailableRepo } from './candidate-evidence.js';
 import { collectContributions } from './contributions.js';
@@ -50,8 +49,8 @@ export async function paceGitHubRequest(now = Date.now()): Promise<void> {
   if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
 }
 
-export function demoOctokit(): Octokit {
-  const octokit = new Octokit(env.GITHUB_DEMO_TOKEN ? { auth: env.GITHUB_DEMO_TOKEN } : {});
+export function demoOctokit(auth?: string): Octokit {
+  const octokit = new Octokit(auth ? { auth } : {});
   octokit.hook.before('request', () => paceGitHubRequest());
   return octokit;
 }

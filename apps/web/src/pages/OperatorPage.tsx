@@ -1,5 +1,7 @@
 import {
   MAX_SELECTED_REPOSITORIES,
+  SKILL_CATALOGUE,
+  evidenceUrl,
   type Health,
   type Me,
   type PublicRepository,
@@ -11,11 +13,15 @@ import {
   getHealth,
   getMe,
   getMyRepositories,
-  loginUrl,
+  analyzeJudgeProfile,
+  getJudgeProfile,
+  pollGitHubSignIn,
+  startGitHubSignIn,
   logout,
   saveMyRepositories,
 } from '../api';
 import { DemoScreen } from '../DemoScreen';
+import { ErrorNote, errorText, useAction, useLoad, usePoll } from '../ui';
 
 const AUTH_ERRORS: Record<string, string> = {
   access_denied: 'You cancelled the GitHub sign-in.',
@@ -26,7 +32,7 @@ const AUTH_ERRORS: Record<string, string> = {
 };
 
 /** Operator tools: GitHub sign-in and starting analyses. Separate from demo identities. */
-export function OperatorPage() {
+export function OperatorPage({ profileOnly = false }: { profileOnly?: boolean }) {
   const [health, setHealth] = useState<Health | null | undefined>(undefined);
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -55,7 +61,7 @@ export function OperatorPage() {
           ← Choose a demo identity
         </Link>
         <header className="mb-8 mt-4">
-          <h1 className="text-3xl font-semibold tracking-tight">ClearHire operator tools</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{profileOnly ? 'My profile' : 'ClearHire operator tools'}</h1>
           <p className="mt-1 text-slate-600">
             Ranks candidates by verified evidence from their code, not by polished résumés.
           </p>
@@ -73,14 +79,18 @@ export function OperatorPage() {
           {me === undefined ? (
             <p className="text-slate-500">Loading…</p>
           ) : me === null ? (
-            <SignedOut githubConfigured={health?.githubConfigured ?? false} />
+            <SignedOut githubConfigured={health?.githubConfigured ?? false} onSignIn={setMe} />
           ) : (
             <SignedIn me={me} onLogout={handleLogout} />
           )}
         </section>
 
-        <h2 className="mb-3 mt-10 text-xl font-semibold tracking-tight">Demo pipeline</h2>
-        <DemoScreen isOperator={me?.isDemoOperator ?? false} />
+        {!profileOnly && (
+          <>
+            <h2 className="mb-3 mt-10 text-xl font-semibold tracking-tight">Demo pipeline</h2>
+            <DemoScreen isOperator={me?.isDemoOperator ?? false} />
+          </>
+        )}
       </div>
     </main>
   );
@@ -112,27 +122,74 @@ function StatusBar({ health }: { health: Health | null | undefined }) {
   );
 }
 
-function SignedOut({ githubConfigured }: { githubConfigured: boolean }) {
+function SignedOut({ githubConfigured, onSignIn }: {
+  githubConfigured: boolean;
+  onSignIn: (me: Me | null) => void;
+}) {
+  const [device, setDevice] = useState<Awaited<ReturnType<typeof startGitHubSignIn>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    if (!device) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const result = await pollGitHubSignIn();
+        if (cancelled) return;
+        if (result.status === 'pending') {
+          timer = setTimeout(poll, result.intervalMs);
+          return;
+        }
+        if (result.status === 'signed_in') {
+          const me = await getMe();
+          if (!cancelled && me) onSignIn(me);
+          else if (!cancelled) throw new Error('Missing session');
+        } else {
+          setError('GitHub sign-in ended. Start again for a new code.');
+          setDevice(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Could not finish GitHub sign-in. Try again.');
+          setDevice(null);
+        }
+      }
+    }
+    timer = setTimeout(poll, device.intervalMs);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [device, onSignIn]);
+
+  async function start() {
+    setStarting(true);
+    setError(null);
+    try {
+      setDevice(await startGitHubSignIn());
+    } catch {
+      setError('Could not start GitHub sign-in. Check the GitHub App device flow setting.');
+    } finally {
+      setStarting(false);
+    }
+  }
+
   return (
     <div>
       <h2 className="text-lg font-medium">Sign in</h2>
-      <p className="mt-1 text-sm text-slate-600">
-        Connect your GitHub account to get started. ClearHire only reads the repositories you choose.
-      </p>
-      <a
-        href={loginUrl}
-        className={`mt-4 inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white ${
-          githubConfigured ? 'bg-slate-900 hover:bg-slate-700' : 'pointer-events-none bg-slate-400'
-        }`}
-        aria-disabled={!githubConfigured}
-      >
-        Sign in with GitHub
-      </a>
-      {!githubConfigured && (
-        <p className="mt-2 text-xs text-amber-700">
-          GitHub sign-in is not configured on the API yet (see SETUP.md).
+      {device ? (
+        <p className="mt-3 text-sm">
+          Enter <strong className="font-mono">{device.code}</strong> on{' '}
+          <a href="https://github.com/login/device" target="_blank" rel="noreferrer" className="underline">GitHub</a>.
+          This page updates after you approve.
         </p>
+      ) : (
+        <button type="button" onClick={() => void start()} disabled={!githubConfigured || starting}
+          className="mt-3 rounded-md bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">
+          Sign in with GitHub
+        </button>
       )}
+      {!githubConfigured && <p className="mt-2 text-sm">GitHub sign-in setup is in SETUP.md.</p>}
+      {error && <p role="alert" className="mt-2 text-sm text-red-800">{error}</p>}
     </div>
   );
 }
@@ -162,23 +219,60 @@ function SignedIn({ me, onLogout }: { me: Me; onLogout: () => void }) {
               'None visible (check the App has "Email addresses: read").'}
           </dd>
         </div>
-        <div>
-          <dt className="font-medium text-slate-700">Repository access</dt>
-          <dd className="text-slate-600">
-            {me.github.installationId ? (
-              <>Installed (installation {me.github.installationId}).</>
-            ) : me.github.installUrl ? (
-              <a className="text-blue-700 underline" href={me.github.installUrl}>
-                Install the ClearHire GitHub App and choose repositories
-              </a>
-            ) : (
-              'Not installed (set GITHUB_APP_SLUG to show the install link).'
-            )}
-          </dd>
-        </div>
       </dl>
-      <RepositoryChoice />
+      <JudgeAssessment />
     </div>
+  );
+}
+
+const skillNames = new Map<string, string>(SKILL_CATALOGUE.skills.map(({ id, name }) => [id, name]));
+
+function JudgeAssessment() {
+  const { data, error, reload } = useLoad(getJudgeProfile, []);
+  const analyze = useAction();
+  usePoll(Boolean(data?.running), reload);
+  return (
+    <>
+      <RepositoryChoice disabled={Boolean(data?.running)} onSaved={reload} />
+      <button type="button" disabled={!data || data.running || analyze.busy}
+        className="mt-4 rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+        onClick={async () => { if (await analyze.run(analyzeJudgeProfile)) reload(); }}>
+        {data?.running ? 'Analyzing…' : 'Analyze my repos'}
+      </button>
+      <ErrorNote error={analyze.error ?? error ?? (data?.errorCode ? errorText(new ApiRequestError(data.errorCode)) : null)} />
+      {data?.assessment && (
+        <section className="mt-6 space-y-3">
+          <h2 className="font-medium">Skill markers</h2>
+          {data.assessment.skills.length === 0 && <p>No attributable skill markers were found.</p>}
+          <ul className="space-y-3 text-sm">
+            {data.assessment.skills.map((skill) => (
+              <li key={skill.skillId}>
+                <strong>{skillNames.get(skill.skillId) ?? skill.skillId} · Level {skill.level}</strong>
+                <p>{skill.rationale}</p>
+                <ul>
+                  {skill.evidence.map((ref, index) => (
+                    <li key={index}><a className="underline" href={evidenceUrl(ref)} target="_blank" rel="noreferrer">
+                      {ref.repo}/{ref.path} (lines {ref.startLine}–{ref.endLine})
+                    </a></li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          {data.match && (
+            <section className="border-t pt-3 text-sm">
+              <h2 className="font-medium">Sample match · {data.jobTitle}</h2>
+              {data.match.status === 'scored'
+                ? <p>{Math.round(data.match.compatibility)}% match · {Math.round(data.match.evidenceCoverage)}% evidence coverage</p>
+                : <p>No score for this posting.</p>}
+              <ul>{data.match.requirements.map((requirement) => (
+                <li key={requirement.skillId}>{skillNames.get(requirement.skillId) ?? requirement.skillId} · {requirement.verdict.replaceAll('_', ' ')}</li>
+              ))}</ul>
+            </section>
+          )}
+        </section>
+      )}
+    </>
   );
 }
 
@@ -186,9 +280,9 @@ const pushed = (r: PublicRepository) => (r.pushedAt ? Date.parse(r.pushedAt) : 0
 
 /**
  * Public repositories to assess, at most 10, in the order chosen. Sorting only helps browsing;
- * nothing is chosen automatically. Saving does not start grading (not available for live accounts).
+ * nothing is chosen automatically. Saving and analyzing are separate actions.
  */
-function RepositoryChoice() {
+function RepositoryChoice({ disabled, onSaved }: { disabled: boolean; onSaved: () => void }) {
   const [repos, setRepos] = useState<PublicRepository[] | null>(null);
   const [chosen, setChosen] = useState<number[]>([]);
   const [sort, setSort] = useState<'stars' | 'pushed'>('stars');
@@ -213,7 +307,8 @@ function RepositoryChoice() {
     setSaving(true);
     try {
       await saveMyRepositories(chosen);
-      setStatus('Saved. Grading for live accounts is not available yet, so nothing was started.');
+      setStatus('Selection saved.');
+      onSaved();
     } catch (err) {
       setStatus(err instanceof ApiRequestError ? `Not saved (${err.code}).` : 'Not saved.');
     } finally {
@@ -257,7 +352,7 @@ function RepositoryChoice() {
                 type="checkbox"
                 id={`repo-${r.id}`}
                 checked={on}
-                disabled={!on && full}
+                disabled={disabled || (!on && full)}
                 onChange={() => toggle(r.id)}
               />
               <label htmlFor={`repo-${r.id}`} className="flex-1 text-slate-800">
@@ -273,7 +368,7 @@ function RepositoryChoice() {
       <div className="mt-3 flex items-center gap-3">
         <button
           onClick={() => void save()}
-          disabled={saving || repos === null}
+          disabled={disabled || saving || repos === null}
           className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:bg-slate-400"
         >
           Save selection

@@ -497,7 +497,7 @@ export const RepositorySelectionBodySchema = z
   .strict();
 export type RepositorySelectionBody = z.infer<typeof RepositorySelectionBodySchema>;
 
-/** Saving a selection never starts grading: live-account grading is not available yet. */
+/** Saving a selection never starts grading. */
 export const RepositorySelectionSavedSchema = z.object({
   saved: z.literal(true),
   grading: z.literal('not_started'),
@@ -816,3 +816,24 @@ export function topMatches<T extends { score: Score }>(matches: T[], n: number):
 
 /** True while any pair waits on an analysis, scored or not, displayed or not. */
 export const hasPendingWork = (matches: { score: Score }[]) => matches.some((m) => m.score.pending);
+
+export const JudgeProfileSchema = z.object({
+  assessment: CandidateAssessmentSchema.nullable(),
+  match: MatchResultSchema.nullable(),
+  jobTitle: z.string().nullable(),
+  running: z.boolean(),
+  errorCode: z.string().nullable(),
+});
+
+export const GitHubDeviceCodeSchema = z.object({
+  code: z.string(),
+  intervalMs: z.number().positive(),
+});
+
+export const GitHubDevicePollSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('pending'), intervalMs: z.number().positive() }),
+  z.object({ status: z.literal('signed_in') }),
+  z.object({ status: z.literal('expired') }),
+  z.object({ status: z.literal('denied') }),
+  z.object({ status: z.literal('failed') }),
+]);

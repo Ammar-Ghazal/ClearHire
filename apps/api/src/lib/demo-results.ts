@@ -115,10 +115,16 @@ export async function candidateState(
   if (!modelConfigured(options)) return { freshness: freshness('model_not_configured'), ...none };
   const subject = { kind: 'demo' as const, key: row.key };
   const selection = await activeSelection(subject);
-  if (selection.length === 0) {
-    return { freshness: freshness(row.selectionCheckedAt ? 'not_applicable' : 'not_started'), ...none };
-  }
   const model = (options.model ?? env.META_MODEL) as MuseModel;
+  if (selection.length === 0) {
+    const saved = await latestSaved('candidate', subject, model, SKILL_CATALOGUE.version);
+    return {
+      freshness: freshness(saved ? 'outdated' : row.selectionCheckedAt ? 'not_applicable' : 'not_started'),
+      assessment: saved ? CandidateAssessmentSchema.parse(saved.result) : null,
+      manifest: saved?.inputManifest ?? null,
+      selection,
+    };
+  }
   const cacheKey = combinedKey(
     subject,
     model,
@@ -133,7 +139,7 @@ export async function candidateState(
     assessment: lookup.state === 'current'
       ? lookup.assessment
       : saved ? CandidateAssessmentSchema.parse(saved.result) : null,
-    manifest: lookup.state === 'current' ? lookup.inputManifest : null,
+    manifest: lookup.state === 'current' ? lookup.inputManifest : saved?.inputManifest ?? null,
     selection,
   };
 }

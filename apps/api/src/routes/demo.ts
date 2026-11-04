@@ -1,7 +1,8 @@
 // Demo screen routes. Reads return stored results through explicit public fields and never call
-// GitHub or Muse. A seeker may regrade their own profile; other analysis actions and priority
-// changes are limited to the posting's employer or allowlisted operators.
+// GitHub or Muse. Signed-in judges may regrade sample profiles. Operator and employer
+// permissions still apply to posting analysis and priorities.
 import {
+  CandidateAssessmentSchema,
   PrioritySchema,
   ReassessmentBodySchema,
   RerunBodySchema,
@@ -25,13 +26,15 @@ import {
   jobPriorityOverrides,
   repositorySelections,
 } from '../db/schema.js';
-import { isDemoOperator } from '../env.js';
+import { env, isDemoOperator } from '../env.js';
 import {
   activeSelection,
   clearPriorityOverride,
+  latestSaved,
   repositoryProvenance,
   setPriorityOverride,
 } from '../lib/assessments.js';
+import { signedInGitHub } from './me.js';
 import { currentDemoIdentity } from '../lib/demo-identity.js';
 import type { ResumeSource } from '../lib/demo-import.js';
 import { TRANSIENT } from '../lib/demo-prepare.js';
@@ -71,14 +74,6 @@ async function requireOperator(request: FastifyRequest, reply: FastifyReply): Pr
     return false;
   }
   return true;
-}
-
-/** A seeker may regrade only their own profile (as a demo identity); operators any profile. */
-async function requireRegrader(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
-  const identity = await currentDemoIdentity(request);
-  const key = (request.params as { key?: unknown }).key;
-  if (identity?.kind === 'candidate' && identity.key === key) return true;
-  return requireOperator(request, reply);
 }
 
 /** Priorities belong to the posting's employer (as a demo identity) or a demo operator. */
@@ -176,9 +171,46 @@ async function repositoryFlags(
 }
 
 async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
-  const state = await candidateState(row);
+  const current = await candidateState(row);
+  // The checked-in seed predates the current catalogue. Older markers are display-only.
+  const historical = !row.organization && !current.assessment && env.META_MODEL
+    ? await latestSaved('candidate', { kind: 'demo', key: row.key }, env.META_MODEL)
+    : undefined;
+  const state = historical ? {
+    ...current,
+    assessment: CandidateAssessmentSchema.parse(historical.result),
+    manifest: historical.inputManifest,
+    freshness: { ...current.freshness, state: 'outdated' as const },
+  } : current;
   const flags = await repositoryFlags(row, state);
   const pins = new Map(row.repositories.map((r) => [`${r.owner}/${r.repo}`.toLowerCase(), r.pinnedSha]));
+  // Older seed snapshots lack a manifest. Use only their saved evidence to recover display metadata.
+  const historicalRepos = new Map<string, { repo: string; commitSha: string | null; unavailable: null }>();
+  for (const finding of state.assessment?.repositories ?? []) {
+    historicalRepos.set(finding.repo.toLowerCase(), { repo: finding.repo, commitSha: null, unavailable: null });
+  }
+  for (const skill of state.assessment?.skills ?? []) {
+    for (const ref of skill.evidence) {
+      historicalRepos.set(ref.repo.toLowerCase(), { repo: ref.repo, commitSha: ref.commitSha, unavailable: null });
+    }
+  }
+  const manifest = state.manifest ?? (historicalRepos.size > 0 ? {
+    repos: [...historicalRepos.values()], resumeSha256: null,
+  } : null);
+  const repositories = state.selection.map((sel) => {
+    const [owner, repo] = sel.fullName.split('/') as [string, string];
+    return { owner, repo, pinnedSha: pins.get(sel.fullName.toLowerCase()) ?? null,
+      repoId: sel.repoId as number | null, flags: flags.get(sel.repoId) ?? [] };
+  });
+  const shown = new Set(repositories.map(({ owner, repo }) => `${owner}/${repo}`.toLowerCase()));
+  for (const name of [...(manifest?.repos.map((r) => r.repo) ?? []),
+    ...(repositories.length === 0 ? row.repositories.map((r) => `${r.owner}/${r.repo}`) : [])]) {
+    if (shown.has(name.toLowerCase())) continue;
+    const [owner, repo] = name.split('/');
+    if (!owner || !repo) continue;
+    shown.add(name.toLowerCase());
+    repositories.push({ owner, repo, pinnedSha: pins.get(name.toLowerCase()) ?? null, repoId: null, flags: [] });
+  }
   const verification = row.verification as DemoCandidate['verification'];
   return {
     ...candidateSummary(row, (await activeSelection({ kind: 'demo', key: row.key })).length),
@@ -193,13 +225,9 @@ async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
       r.unavailable && TRANSIENT.has(r.unavailable) ? [r.repo] : [],
     ),
     repositories: buildRepositoryBreakdown({
-      repositories: state.selection.map((sel) => {
-        const [owner, repo] = sel.fullName.split('/') as [string, string];
-        const pinnedSha = pins.get(sel.fullName.toLowerCase()) ?? null;
-        return { owner, repo, pinnedSha, repoId: sel.repoId, flags: flags.get(sel.repoId) ?? [] };
-      }),
-      manifest: state.manifest,
-      freshness: state.freshness,
+      repositories,
+      manifest,
+      freshness: state.assessment ? { ...state.freshness, state: 'current' } : state.freshness,
       assessment: state.assessment,
     }),
   };
@@ -320,6 +348,8 @@ export async function demoRoutes(app: FastifyInstance) {
 
   app.post('/demo/candidates/:key/analysis', async (request, reply) => {
     if (!(await requireOperator(request, reply))) return reply;
+    const github = await signedInGitHub(request, reply, true);
+    if (!github) return reply;
     const params = KeyParams.safeParse(request.params);
     const body = AnalysisBody.safeParse(request.body ?? {});
     if (!params.success || !body.success) {
@@ -328,7 +358,7 @@ export async function demoRoutes(app: FastifyInstance) {
     const run = await startCandidateRun(
       params.data.key,
       { retry: body.data.retry ?? false, fresh: body.data.fresh ?? false },
-      deps,
+      { ...deps, octokit: () => github.octokit, manualRetry: true },
     );
     return started(reply, run);
   });
@@ -342,7 +372,8 @@ export async function demoRoutes(app: FastifyInstance) {
     '/demo/candidates/:key/rerun',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      if (!(await requireRegrader(request, reply))) return reply;
+      const github = await signedInGitHub(request, reply, true);
+      if (!github) return reply;
       const params = KeyParams.safeParse(request.params);
       const body = RerunBodySchema.safeParse(request.body ?? {});
       if (!params.success || !body.success) {
@@ -351,7 +382,7 @@ export async function demoRoutes(app: FastifyInstance) {
       const run = await startCandidateRun(
         params.data.key,
         { retry: true, ...(body.data.repoIds && { repoIds: body.data.repoIds }) },
-        deps,
+        { ...deps, octokit: () => github.octokit, manualRetry: true },
       );
       return started(reply, run);
     },
@@ -362,13 +393,14 @@ export async function demoRoutes(app: FastifyInstance) {
     '/demo/candidates/:key/reassessments',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      if (!(await requireRegrader(request, reply))) return reply;
+      const github = await signedInGitHub(request, reply, true);
+      if (!github) return reply;
       const params = KeyParams.safeParse(request.params);
       const body = ReassessmentBodySchema.safeParse(request.body);
       if (!params.success || !body.success) {
         return send(reply, 400, 'invalid_input', 'Invalid reassessment request');
       }
-      const run = await startReassessment(params.data.key, body.data, deps);
+      const run = await startReassessment(params.data.key, body.data, { ...deps, octokit: () => github.octokit, manualRetry: true });
       return started(reply, run);
     },
   );

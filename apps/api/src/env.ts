@@ -41,8 +41,6 @@ const EnvSchema = z.object({
   GITHUB_APP_SLUG: optional,
   GITHUB_CLIENT_ID: optional,
   GITHUB_CLIENT_SECRET: optional,
-  // Read-only token for preparing public demo repositories; never a user's token.
-  GITHUB_DEMO_TOKEN: optional,
   META_API_KEY: optional,
   // Chosen explicitly: Contributor for approved public test data, Standard for the final demo.
   META_MODEL: optional.refine((v) => v === undefined || (MUSE_MODELS as string[]).includes(v), {
@@ -74,8 +72,8 @@ export const env = {
 
 export const isProduction = env.NODE_ENV === 'production';
 
-/** GitHub sign-in needs the client id and secret; everything else can come later. */
-export const githubConfigured = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+/** Device sign-in needs the public client ID. */
+export const githubConfigured = Boolean(env.GITHUB_CLIENT_ID);
 
 /** Muse calls need a key and an explicitly chosen model; nothing switches models automatically. */
 export const museConfigured = Boolean(env.META_API_KEY && env.META_MODEL);

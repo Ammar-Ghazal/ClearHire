@@ -14,6 +14,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<IdentityPage />} />
+      <Route path="/my-profile" element={<OperatorPage profileOnly />} />
       <Route path="/operator" element={<OperatorPage />} />
       <Route element={<Shell />}>
         <Route path="/matches" element={<MatchesPage />} />

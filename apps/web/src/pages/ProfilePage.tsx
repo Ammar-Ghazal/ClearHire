@@ -3,7 +3,7 @@
 import type { Arrangement, DemoCandidate, Preferences } from '@clearhire/shared';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { getDemoCandidate, getPreferences, regradeCandidate, savePreferences } from '../api';
+import { getDemoCandidate, getMe, getPreferences, regradeCandidate, savePreferences } from '../api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useChosenIdentity } from '../identity';
@@ -57,6 +57,7 @@ function analysisLabel(candidate: DemoCandidate): string {
 function SeekerProfile({ candidateKey }: { candidateKey: string }) {
   const { data, error, reload } = useLoad(() => getDemoCandidate(candidateKey), [candidateKey]);
   const regrade = useAction();
+  const { data: signedIn } = useLoad(getMe, []);
   // Repositories to regrade; all selected ones unless the seeker unticks some.
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const running = data?.run.status === 'queued' || data?.run.status === 'pending';
@@ -163,18 +164,35 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
                 data.freshness.completedAt &&
                 ` · ${new Date(data.freshness.completedAt).toLocaleDateString()}`}
             </dd>
-            {regradable.length > 0 && !data.organization && (
+            {(regradable.length > 0 || data.repositoryCount === null) && !data.organization && (
               <dd className="mt-2 space-y-1">
-                <Button
+                {!signedIn ? (
+                  <Link to="/my-profile" className="text-sm underline">
+                    Sign in with GitHub to regrade
+                  </Link>
+                ) : <Button
                   variant="outline"
                   size="sm"
-                  disabled={running || regrade.busy || toRegrade.length === 0}
+                  disabled={running || regrade.busy || (regradable.length > 0 && toRegrade.length === 0)}
                   onClick={async () => {
-                    if (await regrade.run(() => regradeCandidate(candidateKey, toRegrade))) reload();
+                    if (await regrade.run(() => regradeCandidate(candidateKey, regradable.length > 0 ? toRegrade : undefined))) reload();
                   }}
                 >
-                  Regrade from latest code ({toRegrade.length} of {regradable.length})
-                </Button>
+                  {regradable.length > 0
+                    ? `Regrade from latest code (${toRegrade.length} of ${regradable.length})`
+                    : 'Regrade from latest code'}
+                </Button>}
+                {signedIn && data.run.status === 'failed' && (
+                  <Button variant="outline" size="sm" disabled={regrade.busy}
+                    onClick={async () => {
+                      if (await regrade.run(() => regradeCandidate(candidateKey))) reload();
+                    }}>
+                    Resume interrupted regrade
+                  </Button>
+                )}
+                {(data.run.errorCode === 'github_reconnect') && (
+                  <Link to="/my-profile" className="block text-sm underline">Reconnect GitHub</Link>
+                )}
                 <ErrorNote error={regrade.error} />
               </dd>
             )}
@@ -203,7 +221,11 @@ function Skills({ candidate }: { candidate: DemoCandidate }) {
     );
   }
   return (
-    <ul className="grid gap-2 sm:grid-cols-2">
+    <>
+      {candidate.freshness.state === 'outdated' && (
+        <p className="mb-2 text-sm text-slate-500">From a previously saved assessment.</p>
+      )}
+      <ul className="grid gap-2 sm:grid-cols-2">
       {[...skills.values()]
         .sort((a, b) => b.level - a.level || a.name.localeCompare(b.name))
         .map((s) => (
@@ -214,7 +236,8 @@ function Skills({ candidate }: { candidate: DemoCandidate }) {
             </span>
           </li>
         ))}
-    </ul>
+      </ul>
+    </>
   );
 }
 

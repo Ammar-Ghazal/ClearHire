@@ -1,4 +1,6 @@
 // GitHub App user sign-in (R-3.2). Uses the web flow with the App's client id and secret.
+import { z } from 'zod';
+
 import { Octokit } from '@octokit/rest';
 import { env } from '../env.js';
 
@@ -113,3 +115,53 @@ export async function fetchProfile(accessToken: string): Promise<GitHubProfile> 
     installationId,
   };
 }
+
+export async function startDeviceSignIn() {
+  const res = await fetch('https://github.com/login/device/code', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: new URLSearchParams({ client_id: env.GITHUB_CLIENT_ID ?? '', scope: 'offline_access' }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new GitHubAuthError('device_start_failed', 'GitHub device sign-in failed');
+  return deviceCodeSchema.parse(await res.json());
+}
+
+export async function pollDeviceSignIn(deviceCode: string): Promise<UserTokens | string> {
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: new URLSearchParams({
+      client_id: env.GITHUB_CLIENT_ID ?? '',
+      device_code: deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = tokenResponseSchema.parse(await res.json());
+  if (body.error) return body.error;
+  if (!res.ok || !body.access_token) throw new GitHubAuthError('token_missing', 'GitHub did not return a token');
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token ?? null,
+    accessTokenExpiresAt: body.expires_in ? new Date(Date.now() + body.expires_in * 1000) : null,
+    refreshTokenExpiresAt: body.refresh_token_expires_in
+      ? new Date(Date.now() + body.refresh_token_expires_in * 1000)
+      : null,
+  };
+}
+
+const deviceCodeSchema = z.object({
+  device_code: z.string().min(1),
+  user_code: z.string().min(1),
+  interval: z.number().positive(),
+  expires_in: z.number().positive(),
+});
+
+const tokenResponseSchema = z.object({
+  error: z.string().optional(),
+  access_token: z.string().min(1).optional(),
+  refresh_token: z.string().optional(),
+  expires_in: z.number().positive().optional(),
+  refresh_token_expires_in: z.number().positive().optional(),
+});

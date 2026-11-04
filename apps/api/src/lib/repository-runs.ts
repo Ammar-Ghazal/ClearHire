@@ -24,6 +24,7 @@ import {
   downloadArchive,
   fetchFiles,
   IngestError,
+  toIngestError,
   listTree,
   overLimits,
   type RepoArchive,
@@ -96,9 +97,9 @@ export function needsWork(s: Selection, mode: 'automatic' | 'explicit'): boolean
   if (s.lastError && mode === 'automatic') {
     if (!GITHUB_TRANSIENT.has(s.lastError) || s.githubFailures >= MAX_GITHUB_FAILURES) return false;
   }
-  if (s.freshRequestedAt !== null) return true;
+  if (s.freshRequestedAt !== null || s.progress !== null) return true;
   if (s.legacyAssessmentId !== null) return false;
-  return s.progress !== null || s.assessedCommit === null || s.lastError !== null;
+  return s.assessedCommit === null || s.lastError !== null;
 }
 
 /**
@@ -142,6 +143,18 @@ export interface RepositoryContext {
   identity: CandidateIdentity;
   resumeText: string | null;
   dataUse: DataUse;
+  publicOnly?: boolean;
+}
+
+export async function requirePublicRepository(octokit: Octokit, owner: string, repo: string, repoId: number) {
+  try {
+    const { data } = await octokit.rest.repos.get({ owner, repo });
+    if (data.private || data.id !== repoId) {
+      throw new IngestError('forbidden', 'The selected repository is no longer public or has changed');
+    }
+  } catch (err) {
+    throw toIngestError(err, 'publicRepository', new AbortController().signal);
+  }
 }
 
 /**
@@ -160,6 +173,7 @@ export async function processRepository(
 ): Promise<void> {
   const [owner, repo] = selection.fullName.split('/') as [string, string];
   assertGitHubAvailable();
+  if (ctx.publicOnly) await requirePublicRepository(octokit, owner, repo, selection.repoId);
   let progress = mode.fresh ? null : selection.progress;
   // GraphQL pins the head (or the resumed commit) with its first history page; REST lists the tree.
   const pinned = await pinHistory(octokit, {

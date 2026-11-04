@@ -221,33 +221,34 @@ describe('dependency context and coverage', () => {
     expect(evidence.coverage.evidence).toBe('complete');
   });
 
-  it('cites lines in unpaired tests and reports lines in whole-file exclusions as omissions', () => {
-    const minified = `export const x = '${'x'.repeat(1001)}';\nexport const y = 1;\n`;
+  it('keeps attributed code around an oversized line and labels generated exclusions separately', () => {
+    const longLine = `export const large = '${'x'.repeat(1001)}';`;
     const repo = fixtureRepo(
       'one',
       [
-        { path: 'src/a.ts', content: sourceLines(10) },
-        { path: 'src/bundle.ts', content: minified },
+        { path: 'src/bundle.ts', content: `export const before = 1;\n${longLine}\nexport const after = 2;\n` },
+        { path: 'src/generated.ts', content: '// @generated\nexport const generated = 1;\n' },
         { path: 'tests/flow.test.ts', content: "import { a } from 'pkg';\ntest('a', () => {});\n" },
       ],
       [
         { sha: 'c1', path: 'tests/flow.test.ts', start: 1, end: 2 },
-        { sha: 'c2', path: 'src/bundle.ts', start: 1, end: 2 },
+        { sha: 'c2', path: 'src/bundle.ts', start: 1, end: 3 },
+        { sha: 'c3', path: 'src/generated.ts', start: 1, end: 2 },
       ],
     );
     const evidence = buildCandidateEvidence(fixtureCandidate([repo]), LARGE);
-    expect(evidence.items.filter((i) => i.kind === 'attributed').map((i) => i.path)).toEqual([
-      'tests/flow.test.ts',
+    const attributed = evidence.items.filter((i) => i.kind === 'attributed');
+    expect(attributed.filter((i) => i.path === 'src/bundle.ts')).toMatchObject([
+      { startLine: 1, endLine: 1 },
+      { startLine: 3, endLine: 3 },
     ]);
-    expect(evidence.coverage.omissions).toEqual([
-      {
-        repo: 'octo/one',
-        path: 'src/bundle.ts',
-        reason: 'attributed_not_stored',
-        startLine: 1,
-        endLine: 2,
-      },
-    ]);
+    expect(attributed.some((i) => i.path === 'tests/flow.test.ts')).toBe(true);
+    expect(attributed.some((i) => i.path === 'src/generated.ts')).toBe(false);
+    expect(evidence.coverage.omissions).toEqual(expect.arrayContaining([
+      { repo: 'octo/one', path: 'src/bundle.ts', reason: 'long_line', startLine: 2, endLine: 2 },
+      { repo: 'octo/one', path: 'src/generated.ts', reason: 'generated', startLine: 1, endLine: 2 },
+    ]));
+    expect(evidence.coverage.omissions).toHaveLength(2);
     expect(evidence.coverage.evidence).toBe('sampled');
   });
 });

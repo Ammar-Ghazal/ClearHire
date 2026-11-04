@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import type { SkipReason } from './ingest-filter.js';
 import type { RepoSnapshot } from './ingest.js';
 
-export const CLEANER_VERSION = 1;
+export const CLEANER_VERSION = 2;
 
 export interface PacketOptions {
   maxChars: number;
@@ -82,7 +82,7 @@ export interface ManifestSummary {
 
 export type Omission =
   | { path: string; reason: SkipReason }
-  | { path: string; reason: 'budget'; startLine: number; endLine: number };
+  | { path: string; reason: 'budget' | 'long_line'; startLine: number; endLine: number };
 
 export interface AnalysisPackets {
   repository: { owner: string; repo: string };
@@ -191,11 +191,11 @@ function classify(dirs: string[], name: string): FileKind {
 
 function exclusionOf(name: string, lines: Line[]): Exclusion | null {
   if (lines.length === 0) return 'empty';
-  if (lines.some((l) => l.text.length > MAX_LINE_LENGTH)) return 'long_line';
   const marked = lines
     .slice(0, 5)
     .some((l) => l.text.includes('@generated') || l.text.includes('DO NOT EDIT'));
   if (name.includes('.min.') || marked) return 'generated';
+  if (lines.every((line) => line.text.length > MAX_LINE_LENGTH)) return 'long_line';
   return null;
 }
 
@@ -653,6 +653,7 @@ interface FileState {
   original: Line[];
   redacted: Line[];
   redactions: LineRedaction[];
+  longLines: Set<number>;
 }
 
 interface PlannedPacket {
@@ -677,6 +678,9 @@ function prepareFile(file: { path: string; content: string }): FileState {
     exclusion,
     sha256: sha256Hex(file.content),
     original,
+    longLines: new Set(original.flatMap((line, index) =>
+      line.text.length > MAX_LINE_LENGTH ? [index + 1] : [],
+    )),
     redacted,
     redactions,
   };
@@ -684,8 +688,16 @@ function prepareFile(file: { path: string; content: string }): FileState {
 
 function chunkFile(file: FileState, chunkLines: number): Chunk[] {
   const chunks: Chunk[] = [];
-  for (let start = 0; start < file.original.length; start += chunkLines) {
-    const end = Math.min(start + chunkLines, file.original.length);
+  let start = 0;
+  while (start < file.original.length) {
+    if (file.longLines.has(start + 1)) {
+      start++;
+      continue;
+    }
+    let end = start + 1;
+    while (end < file.original.length && end - start < chunkLines && !file.longLines.has(end + 1)) {
+      end++;
+    }
     chunks.push({
       id: `${file.path}#L${start + 1}-L${end}`,
       path: file.path,
@@ -697,6 +709,7 @@ function chunkFile(file: FileState, chunkLines: number): Chunk[] {
         .filter((r) => r.line > start && r.line <= end)
         .map(({ line, kind }) => ({ line, kind })),
     });
+    start = end;
   }
   return chunks;
 }
@@ -717,7 +730,7 @@ export function buildPackets(
 
   const summaries = new Map<string, ManifestSummary>();
   for (const f of files) {
-    if (f.kind !== 'manifest' || f.exclusion !== null) continue;
+    if (f.kind !== 'manifest' || f.exclusion !== null || f.longLines.size > 0) continue;
     const summary = summarizeManifest(f.path, f.name, f.redacted);
     if (summary) summaries.set(f.path, summary);
   }
@@ -861,13 +874,19 @@ export function buildPackets(
   for (const f of files) {
     let status: FileStatus;
     const chunks = chunksOf.get(f.path);
+    if (f.exclusion !== 'generated') {
+      for (const line of f.longLines) {
+        omissions.push({ path: f.path, reason: 'long_line', startLine: line, endLine: line });
+      }
+    }
     if (f.exclusion !== null) status = f.exclusion;
     else if (summaries.has(f.path)) {
       status = admittedSummaries.has(f.path) ? 'summarized' : 'summary_excluded';
     } else {
       const all = chunks!;
       const sent = all.filter((c) => emitted.has(c.id)).length;
-      status = sent === all.length ? 'included' : sent === 0 ? 'excluded_budget' : 'partial';
+      status = sent === 0 ? 'excluded_budget' :
+        sent === all.length && f.longLines.size === 0 ? 'included' : 'partial';
       // Merge adjacent unemitted chunks into one budget omission.
       for (const chunk of all) {
         if (emitted.has(chunk.id)) continue;

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 // The shared helpers behind the Matches page's top-N list and its refresh condition.
 const score = (state: Score['state'], compatibility: number | null = null, pending = false) => ({
-  score: { state, compatibility, evidenceCoverage: compatibility, provisional: false, pending },
+  score: { state, compatibility, evidenceCoverage: compatibility, provisional: false, pending, updateFailed: false },
 });
 const scored = (compatibility: number, pending = false) => score('scored', compatibility, pending);
 

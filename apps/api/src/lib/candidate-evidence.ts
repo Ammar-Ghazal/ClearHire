@@ -90,7 +90,7 @@ export interface RepoEvidence {
 export interface Omission {
   repo: string;
   path: string;
-  reason: 'budget' | 'attributed_not_stored' | 'not_processed' | 'context_omitted';
+  reason: 'budget' | 'attributed_not_stored' | 'long_line' | 'generated' | 'not_processed' | 'context_omitted';
   startLine: number | null;
   endLine: number | null;
 }
@@ -292,13 +292,20 @@ export function buildCandidateEvidence(
   });
   // Chunk-eligible files map to their group even when this copy's own chunks were not emitted.
   const CHUNKED = new Set(['included', 'partial', 'excluded_budget']);
-  // Minified or generated files are never sent whole, but lines attributed in them are reported.
-  const WHOLE_FILE_EXCLUSIONS = new Set(['long_line', 'generated']);
-  const excludedFiles = new Set<string>();
+  const excludedFiles = new Map<string, 'long_line' | 'generated'>();
+  const longLines = new Map<string, Set<number>>();
   packets.forEach((p, repoIndex) => {
     for (const f of p.files) {
-      if (CHUNKED.has(f.status)) groupOf.set(`${repoIndex}\0${f.path}`, f.sha256);
-      if (WHOLE_FILE_EXCLUSIONS.has(f.status)) excludedFiles.add(`${repoIndex}\0${f.path}`);
+      const key = `${repoIndex}\0${f.path}`;
+      if (CHUNKED.has(f.status)) groupOf.set(key, f.sha256);
+      if (f.status === 'long_line' || f.status === 'generated') excludedFiles.set(key, f.status);
+    }
+    for (const o of p.omissions) {
+      if (o.reason !== 'long_line') continue;
+      const key = `${repoIndex}\0${o.path}`;
+      const lines = longLines.get(key) ?? new Set<number>();
+      lines.add(o.startLine);
+      longLines.set(key, lines);
     }
   });
 
@@ -329,38 +336,30 @@ export function buildCandidateEvidence(
           aiCoauthorDeclared: c.aiCoauthorDeclared,
         };
         // Summarized manifests, empty and ingest-filtered files hold no reviewable code.
-        const hash = groupOf.get(`${repoIndex}\0${r.path}`);
+        const key = `${repoIndex}\0${r.path}`;
+        const hash = groupOf.get(key);
         if (hash === undefined) {
-          if (excludedFiles.has(`${repoIndex}\0${r.path}`)) {
-            omissions.push({
-              repo,
-              path: r.path,
-              reason: 'attributed_not_stored',
-              startLine: r.start,
-              endLine: r.end,
-            });
+          const reason = excludedFiles.get(key);
+          if (reason) {
+            omissions.push({ repo, path: r.path, reason, startLine: r.start, endLine: r.end });
           }
           continue;
         }
         const stored = storedLines.get(hash);
-        let missingStart: number | null = null;
-        for (let n = r.start; n <= r.end + 1; n++) {
-          const present = n <= r.end && stored?.has(n);
-          if (n <= r.end && !present) {
-            missingStart ??= n;
+        const overlong = longLines.get(key);
+        let missing: Omission | undefined;
+        for (let n = r.start; n <= r.end; n++) {
+          if (!stored?.has(n)) {
+            const reason = overlong?.has(n) ? 'long_line' : 'attributed_not_stored';
+            if (missing?.reason === reason) {
+              missing.endLine = n;
+            } else {
+              missing = { repo, path: r.path, reason, startLine: n, endLine: n };
+              omissions.push(missing);
+            }
             continue;
           }
-          if (missingStart !== null) {
-            omissions.push({
-              repo,
-              path: r.path,
-              reason: 'attributed_not_stored',
-              startLine: missingStart,
-              endLine: n - 1,
-            });
-            missingStart = null;
-          }
-          if (n > r.end) break;
+          missing = undefined;
           const byLine = lineEntries.get(hash) ?? new Map<number, LineContribution[]>();
           lineEntries.set(hash, byLine);
           const list = byLine.get(n) ?? [];

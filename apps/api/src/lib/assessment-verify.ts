@@ -18,6 +18,8 @@ import {
 
 /** Recorded with each result; raw model output is not stored, so a change needs a regrade. */
 export const VERIFIER_VERSION = 1;
+/** In every job key: bump when verifyJob or job output handling changes (the prompt is in the body). */
+export const JOB_GRADING_VERSION = 1;
 
 const CATALOGUE = { id: SKILL_CATALOGUE.id, version: SKILL_CATALOGUE.version };
 

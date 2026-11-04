@@ -325,7 +325,8 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 /**
  * Whether a saved assessment matches the subject's current inputs. Only `current` results are
- * shown or scored; `outdated` means only results for older inputs or versions exist.
+ * shown or scored; `outdated` means only results for older inputs or versions were saved, and
+ * `failed` that the latest attempt failed with no result saved for these inputs.
  */
 export const FreshnessSchema = z.object({
   state: z.enum([
@@ -685,6 +686,10 @@ export const ScoreSchema = z.object({
   provisional: z.boolean(),
   /** Either side is queued or being analysed, even when an earlier result is scored. */
   pending: z.boolean(),
+  /** At least one side is using a saved assessment for earlier inputs. */
+  usingLastSaved: z.boolean().optional(),
+  /** A newer grade of either side failed. */
+  updateFailed: z.boolean(),
 });
 export type Score = z.infer<typeof ScoreSchema>;
 

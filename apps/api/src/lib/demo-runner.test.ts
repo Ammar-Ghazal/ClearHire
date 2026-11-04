@@ -533,7 +533,7 @@ describe.runIf(up)('demo runner (Postgres)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('scores current results, rescores priority changes for free and hides stale ones', async () => {
+  it('scores current results, rescores priority changes for free and keeps the last saved one', async () => {
     const key = await seedCandidate('match');
     const id = await seedJob('match');
     const fetchMock = museFetch();
@@ -562,17 +562,16 @@ describe.runIf(up)('demo runner (Postgres)', () => {
       .set({ resumeStatus: 'extracted', resumeText: 'New resume' })
       .where(eq(demoCandidates.key, key));
     expect((await candidateState(await candidate(key))).freshness.state).toBe('current');
-    // ...but a changed selection hides them at once, before anything is combined again.
+    // ...and a changed selection marks them outdated, but the last saved result still scores
+    // the match (the route flags it as usingLastSaved) until the new selection is combined.
     await saveSelection(
       { kind: 'demo', key },
       [{ id: repoId('two'), fullName: 'octo/two', pushedAt: null }],
       'demo_default',
     );
     expect((await candidateState(await candidate(key))).freshness.state).toBe('outdated');
-    expect(await demoMatch(await candidate(key), await job(id))).toEqual({
-      availability: 'unavailable',
-      reason: 'candidate_not_current',
-    });
+    expect(score(await demoMatch(await candidate(key), await job(id)))).toBe(50);
+    expect(await paidCalls()).toBe(calls);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

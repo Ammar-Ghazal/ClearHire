@@ -249,9 +249,19 @@ function scoreOf(
     side.row.runStatus === 'pending' ||
     side.state.freshness.state === 'pending';
   const pending = running(c) || running(j);
-  const none = { compatibility: null, evidenceCoverage: null, provisional: false, pending };
+  const none = {
+    compatibility: null,
+    evidenceCoverage: null,
+    provisional: false,
+    pending,
+    updateFailed: false,
+  };
   if (match.availability === 'available') {
     const m = match.match;
+    const usingLastSaved =
+      c.state.freshness.state !== 'current' || j.state.freshness.state !== 'current';
+    const updateFailed =
+      !pending && (c.row.runStatus === 'failed' || j.row.runStatus === 'failed');
     // Pairs are in scope, so an unscored match here is one whose priorities are all 0.
     return m.status === 'scored'
       ? {
@@ -260,6 +270,8 @@ function scoreOf(
           evidenceCoverage: m.evidenceCoverage,
           provisional: m.provisional,
           pending,
+          updateFailed,
+          usingLastSaved,
         }
       : { state: 'zero_priority', ...none };
   }

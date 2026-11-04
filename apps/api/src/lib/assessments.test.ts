@@ -135,11 +135,11 @@ afterAll(async () => {
 });
 
 // Recorded from the current code: a change here means every saved assessment silently becomes
-// outdated. They also change when the catalogue or a prompt/schema/cleaner/selection/attribution
-// version does.
+// outdated. Candidate keys also change with the catalogue or a prompt/schema/cleaner/selection/
+// attribution version; job keys only with the catalogue, the job request or JOB_GRADING_VERSION.
 const GOLDEN = {
-  candidate: '5615c57651b681e95265fdcd192e360751d89095d6d1d4ce88e4bd20e4e40700',
-  job: '0bf0e15781f16b6b38e7e35420e5839b7fb544916b588159ed7ec63aabc6e0da',
+  candidate: '90828a9f79bb05831f3188ad7ba5c9e364e9f86bad38dae276a93a69aaee1b71',
+  job: '51895e714216ff840900eed1c972cf3717c8ef126fad1f364f5798ff94b6faa6',
 };
 const unattributedRepo = () =>
   fixtureRepo('two', [{ path: 'src/b.ts', content: sourceLines(10) }], []);

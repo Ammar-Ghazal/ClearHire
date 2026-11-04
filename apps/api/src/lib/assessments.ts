@@ -26,6 +26,7 @@ import {
 import { env } from '../env.js';
 import {
   isIncomplete,
+  JOB_GRADING_VERSION,
   scrubQuotedSource,
   verifyCandidate,
   verifyJob,
@@ -137,7 +138,8 @@ function museConfig() {
   return { apiKey: env.META_API_KEY, baseUrl: env.META_BASE_URL };
 }
 
-const VERSIONS = () => ({
+/** Everything seeker evidence depends on: repository, combined and older candidate keys. */
+export const candidateVersions = () => ({
   catalogue: catalogueHash(),
   prompt: PROMPT_VERSION,
   schema: SCHEMA_VERSION,
@@ -146,9 +148,12 @@ const VERSIONS = () => ({
   attribution: ATTRIBUTION_VERSION,
 });
 
-/** Content address: the exact request (model included), the stored evidence and every version. */
-export const cacheKeyOf = (parts: Record<string, unknown>) =>
-  sha256Hex(canonicalJson({ ...parts, versions: VERSIONS() }));
+/** A job never reads repositories: its prompt and schema text are already in the request body. */
+const jobVersions = () => ({ catalogue: catalogueHash(), job: JOB_GRADING_VERSION });
+
+/** Content address: the exact request (model included), the stored evidence and its versions. */
+export const cacheKeyOf = (parts: Record<string, unknown>, versions: object = candidateVersions()) =>
+  sha256Hex(canonicalJson({ ...parts, versions }));
 
 // ---- Spend ledger ----
 
@@ -1419,7 +1424,8 @@ export function jobFingerprint(job: JobInput, options: RunOptions = {}) {
     text: job.text,
     textSource: job.textSource,
   };
-  return { model, body, input, cacheKey: cacheKeyOf({ kind: 'job', body, job: input }) };
+  const cacheKey = cacheKeyOf({ kind: 'job', body, job: input }, jobVersions());
+  return { model, body, input, cacheKey };
 }
 
 export async function analyzeJob(
@@ -1506,12 +1512,22 @@ export async function assessmentByFingerprint<K extends 'candidate' | 'job'>(
   const latest = rows[0];
   if (latest?.status === 'pending') return { state: 'pending' };
   if (latest?.status === 'failed') return { state: 'failed', errorCode: latest.errorCode };
+  // Outdated only when a result for older inputs was saved; a failed attempt alone is a failure.
   const [older] = await db
     .select({ id: skillAssessments.id })
     .from(skillAssessments)
-    .where(ofSubject)
+    .where(and(ofSubject, inArray(skillAssessments.status, [...SAVED])))
     .limit(1);
-  return older ? { state: 'outdated' } : { state: 'not_started' };
+  if (older) return { state: 'outdated' };
+  const [attempt] = await db
+    .select({ status: skillAssessments.status, errorCode: skillAssessments.errorCode })
+    .from(skillAssessments)
+    .where(ofSubject)
+    .orderBy(desc(skillAssessments.startedAt))
+    .limit(1);
+  if (attempt?.status === 'pending') return { state: 'pending' };
+  if (attempt?.status === 'failed') return { state: 'failed', errorCode: attempt.errorCode };
+  return { state: 'not_started' };
 }
 
 // ---- Overrides and matching ----
@@ -1537,10 +1553,11 @@ export async function clearPriorityOverride(jobKey: string, skillId: string): Pr
     .where(and(eq(jobPriorityOverrides.jobKey, jobKey), eq(jobPriorityOverrides.skillId, skillId)));
 }
 
-async function latestSaved(
+export async function latestSaved(
   kind: 'candidate' | 'job',
   subject: { kind: string; key: string },
   model: MuseModel,
+  catalogueVersion?: number,
 ) {
   const [row] = await db
     .select()
@@ -1551,6 +1568,7 @@ async function latestSaved(
         eq(skillAssessments.subjectKind, subject.kind as 'demo' | 'user'),
         eq(skillAssessments.subjectKey, subject.key),
         eq(skillAssessments.model, model),
+        catalogueVersion === undefined ? undefined : eq(skillAssessments.catalogueVersion, catalogueVersion),
         inArray(skillAssessments.status, [...SAVED]),
       ),
     )

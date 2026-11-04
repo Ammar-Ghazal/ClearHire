@@ -1,6 +1,8 @@
 // Read side of the demo: freshness and matches. Uses only stored metadata and the shared code-free
 // input key, so reads never call GitHub or Muse and never show an old result as current.
 import {
+  CandidateAssessmentSchema,
+  JobAssessmentSchema,
   SKILL_CATALOGUE,
   type CandidateAssessment,
   type DemoMatch,
@@ -21,6 +23,7 @@ import {
   assessmentByFingerprint,
   combinedKey,
   jobFingerprint,
+  latestSaved,
   type Lookup,
   type RunOptions,
 } from './assessments.js';
@@ -100,8 +103,8 @@ export interface CandidateState {
 export const gradable = (row: Pick<CandidateRow, 'organization'>) => !row.organization;
 
 /**
- * The combined markers for exactly the active selection. A changed selection has no current
- * result until it is combined again, so markers of removed repositories never show as current.
+ * Prefer the combined markers for the active selection. Older markers can still score
+ * matches while their freshness state distinguishes them from a current assessment.
  */
 export async function candidateState(
   row: CandidateRow,
@@ -122,14 +125,17 @@ export async function candidateState(
     selection.map((s) => s.repoId),
   );
   const lookup = await assessmentByFingerprint('candidate', subject, cacheKey);
-  return lookup.state === 'current'
-    ? {
-        freshness: fromLookup(lookup),
-        assessment: lookup.assessment,
-        manifest: lookup.inputManifest,
-        selection,
-      }
-    : { freshness: fromLookup(lookup), assessment: null, manifest: null, selection };
+  const saved = lookup.state === 'current'
+    ? null
+    : await latestSaved('candidate', subject, model, SKILL_CATALOGUE.version);
+  return {
+    freshness: fromLookup(lookup),
+    assessment: lookup.state === 'current'
+      ? lookup.assessment
+      : saved ? CandidateAssessmentSchema.parse(saved.result) : null,
+    manifest: lookup.state === 'current' ? lookup.inputManifest : null,
+    selection,
+  };
 }
 
 export interface JobState {
@@ -142,11 +148,17 @@ export async function jobState(row: JobRow, options: RunOptions = {}): Promise<J
   if (!modelConfigured(options)) {
     return { freshness: freshness('model_not_configured'), assessment: null };
   }
-  const { cacheKey } = jobFingerprint(jobInput(row), options);
-  const lookup = await assessmentByFingerprint('job', { kind: 'demo', key: row.id }, cacheKey);
+  const subject = { kind: 'demo' as const, key: row.id };
+  const { cacheKey, model } = jobFingerprint(jobInput(row), options);
+  const lookup = await assessmentByFingerprint('job', subject, cacheKey);
+  const saved = lookup.state === 'current'
+    ? null
+    : await latestSaved('job', subject, model, SKILL_CATALOGUE.version);
   return {
     freshness: fromLookup(lookup),
-    assessment: lookup.state === 'current' ? lookup.assessment : null,
+    assessment: lookup.state === 'current'
+      ? lookup.assessment
+      : saved ? JobAssessmentSchema.parse(saved.result) : null,
   };
 }
 
@@ -158,7 +170,7 @@ export async function priorityOverrides(jobKey: string): Promise<Map<string, num
   return new Map(rows.map((o) => [o.skillId, o.priority]));
 }
 
-/** Scores only current assessments; anything else is unavailable, never a 0% score. */
+/** Scores the current assessments or the last saved compatible results. */
 export async function demoMatch(
   candidate: CandidateRow,
   job: JobRow,

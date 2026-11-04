@@ -1,8 +1,10 @@
+import type { ZodType } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertDataUse,
   callMuse,
   candidateBody,
+  CandidateOutputSchema,
   CANDIDATE_MAX_COMPLETION_TOKENS,
   CONTEXT_WINDOW,
   costMicroUsd,
@@ -15,6 +17,7 @@ import {
   jobBody,
   JobOutputSchema,
   MuseError,
+  MUSE_MAX_ATTEMPTS,
   reservationMicroUsd,
   estimateTokens,
   type AttemptSettlement,
@@ -77,7 +80,7 @@ const body = jobBody('muse-spark-1.3', {
   textSource: 'fixture_summary',
 });
 
-async function run(responses: (Response | Error)[]) {
+async function run(responses: (Response | Error)[], schema: ZodType<unknown> = JobOutputSchema) {
   const fetchMock = vi.fn(async () => {
     const next = responses.shift()!;
     if (next instanceof Error) throw next;
@@ -93,7 +96,7 @@ async function run(responses: (Response | Error)[]) {
   const result = callMuse({
     config: CONFIG,
     body,
-    schema: JobOutputSchema,
+    schema,
     timeoutMs: 1000,
     ledger: memory.ledger,
     limiter,
@@ -152,6 +155,39 @@ describe('request bodies', () => {
 });
 
 describe('callMuse', () => {
+  const skill = {
+    skill_id: 'unit-testing',
+    level: 1,
+    confidence: 'high',
+    justification: 'Tests',
+    evidence_refs: ['a1'],
+    supporting_tags: [],
+  };
+  const duplicate = { repositories: [], skills: [skill, skill] };
+  const corrected = { repositories: [], skills: [skill] };
+
+  it('resends a duplicate-skill answer, waiving the budget charge of the resent attempt', async () => {
+    const { result, fetchMock, settlements } = await run(
+      [completion(duplicate), completion(corrected)],
+      CandidateOutputSchema,
+    );
+    await expect(result).resolves.toMatchObject({ data: corrected });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(settlements[0]).toMatchObject({ errorCode: 'duplicate_skill_ids', waiveBudgetCharge: true });
+    expect(settlements[1]).not.toHaveProperty('waiveBudgetCharge');
+  });
+
+  it('gives up after three attempts, charging only the last to the budget', async () => {
+    const { result, fetchMock, settlements } = await run(
+      Array.from({ length: 4 }, () => completion(duplicate)),
+      CandidateOutputSchema,
+    );
+    await expect(result).rejects.toMatchObject({ code: 'duplicate_skill_ids' });
+    expect(MUSE_MAX_ATTEMPTS).toBe(3);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(settlements.map((s) => s.waiveBudgetCharge ?? false)).toEqual([true, true, false]);
+  });
+
   it('returns validated output and settles at the actual usage cost', async () => {
     const { result, fetchMock, settlements } = await run([completion(OUTPUT)]);
     await expect(result).resolves.toMatchObject({ data: OUTPUT, responseId: 'resp-1' });
@@ -184,10 +220,15 @@ describe('callMuse', () => {
     expect(settlements.map((s) => s.settlement)).toEqual(['released', 'settled']);
   });
 
-  it('stops after the single retry', async () => {
-    const { result, fetchMock } = await run([failure(429), failure(429)]);
+  it('stops after three attempts', async () => {
+    const { result, fetchMock } = await run([
+      failure(429),
+      failure(429),
+      failure(429),
+      completion(OUTPUT),
+    ]);
     await expect(result).rejects.toMatchObject({ code: 'rate_limited' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('fails fast when Retry-After exceeds the limit and keeps a 503 charge as ambiguous', async () => {
@@ -197,35 +238,38 @@ describe('callMuse', () => {
     expect(settlements[0]).toMatchObject({ settlement: 'ambiguous', costSource: 'reservation' });
   });
 
+  const timeout = () => Object.assign(new Error('t'), { name: 'TimeoutError' });
   it.each([
-    ['timeout', Object.assign(new Error('t'), { name: 'TimeoutError' }), 'timeout', 'ambiguous'],
-    ['network failure', new TypeError('fetch failed'), 'network', 'ambiguous'],
-    ['HTTP 408', failure(408), 'timeout', 'ambiguous'],
-    ['HTTP 504', failure(504), 'unavailable', 'ambiguous'],
+    ['a timeout', timeout, 'timeout', 'ambiguous'],
+    ['a network failure', () => new TypeError('fetch failed'), 'network', 'ambiguous'],
+    ['HTTP 408', () => failure(408), 'timeout', 'ambiguous'],
+    ['HTTP 504', () => failure(504), 'unavailable', 'ambiguous'],
+    ['truncated output', () => completion(OUTPUT, { finish: 'length' }), 'truncated', 'settled'],
+    ['schema-invalid output', () => completion({ in_scope: 'yes' }), 'invalid_output', 'settled'],
+    ['a missing message', () => completion(OUTPUT, { finish: 'tool_calls' }), 'invalid_output', 'settled'],
+    ['an unreadable body', () => new Response('<html>', { status: 200 }), 'invalid_output', 'settled'],
+  ] as const)('resends after %s, up to three attempts', async (_label, make, code, settlement) => {
+    const recovered = await run([make(), completion(OUTPUT)]);
+    await expect(recovered.result).resolves.toMatchObject({ data: OUTPUT });
+    expect(recovered.fetchMock).toHaveBeenCalledTimes(2);
+    expect(recovered.settlements[0]).toMatchObject({ settlement, waiveBudgetCharge: true });
+
+    const failed = await run([make(), make(), make(), completion(OUTPUT)]);
+    await expect(failed.result).rejects.toMatchObject({ code });
+    expect(failed.fetchMock).toHaveBeenCalledTimes(3);
+    expect(failed.settlements.at(-1)).not.toHaveProperty('waiveBudgetCharge');
+  });
+
+  it.each([
     ['HTTP 400', failure(400), 'bad_request', 'released'],
     ['HTTP 401', failure(401), 'auth', 'released'],
-  ])('never resends after a %s', async (_label, response, code, settlement) => {
+    ['a refusal', completion(null, { refusal: 'No' }), 'refused', 'settled'],
+  ])('never resends after %s', async (_label, response, code, settlement) => {
     const { result, fetchMock, settlements } = await run([response, completion(OUTPUT)]);
     await expect(result).rejects.toMatchObject({ code });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(settlements).toEqual([expect.objectContaining({ settlement })]);
   });
-
-  it.each([
-    ['truncated output', completion(OUTPUT, { finish: 'length' }), 'truncated'],
-    ['a refusal', completion(null, { refusal: 'No' }), 'refused'],
-    ['schema-invalid output', completion({ in_scope: 'yes' }), 'invalid_output'],
-  ])(
-    'fails without retrying on %s, still charging actual usage',
-    async (_label, response, code) => {
-      const { result, fetchMock, settlements } = await run([response, completion(OUTPUT)]);
-      await expect(result).rejects.toMatchObject({ code });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(settlements).toEqual([
-        expect.objectContaining({ settlement: 'settled', costSource: 'usage' }),
-      ]);
-    },
-  );
 
   it('charges the full reservation when a successful response omits usage', async () => {
     const { result, settlements, reservations } = await run([completion(OUTPUT, { usage: null })]);
@@ -237,7 +281,7 @@ describe('callMuse', () => {
   });
 
   it('keeps the key and request text out of errors', async () => {
-    const { result } = await run([failure(500), failure(500)]);
+    const { result } = await run([failure(500), failure(500), failure(500)]);
     const err = await result.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(MuseError);
     const text = `${(err as Error).message} ${JSON.stringify(err)}`;

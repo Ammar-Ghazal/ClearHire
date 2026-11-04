@@ -172,12 +172,13 @@ type Call = typeof museCalls.$inferSelect;
 
 /** Settles one locked, still-reserved call inside the caller's transaction. */
 async function settleLocked(tx: Tx, call: Call, s: AttemptSettlement): Promise<void> {
+  const budgetCharge = s.waiveBudgetCharge ? 0 : s.costMicroUsd;
   for (const scope of [...call.scopes].sort()) {
     await tx
       .update(museSpendBudgets)
       .set({
         reservedMicroUsd: sql`${museSpendBudgets.reservedMicroUsd} - ${call.reservedMicroUsd}`,
-        spentMicroUsd: sql`${museSpendBudgets.spentMicroUsd} + ${s.costMicroUsd}`,
+        spentMicroUsd: sql`${museSpendBudgets.spentMicroUsd} + ${budgetCharge}`,
         updatedAt: new Date(),
       })
       .where(eq(museSpendBudgets.scope, scope));

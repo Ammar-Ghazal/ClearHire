@@ -1,11 +1,14 @@
+import { gzipSync } from 'node:zlib';
 import type { Octokit } from '@octokit/rest';
 import { describe, expect, it, vi } from 'vitest';
 import {
   BLOB_CONCURRENCY,
   DEFAULT_LIMITS,
+  gitBlobSha,
   IngestError,
   ingestRepo,
   quotaResetAt,
+  readTar,
 } from './ingest.js';
 
 const TOKEN = 'ghu_secret_token';
@@ -22,10 +25,20 @@ function httpError(status: number, headers: Record<string, string> = {}) {
   return Object.assign(new Error(`HttpError ${TOKEN}`), { status, response: { headers } });
 }
 
-/** A fake Octokit serving one commit. Blob SHAs are derived from the path. */
-function fakeOctokit(files: FakeFile[], opts: { truncated?: boolean } = {}) {
-  const shaOf = (path: string) => `sha-${path}`;
-  const blobs = new Map(files.map((f) => [shaOf(f.path), f.content ?? Buffer.from(`// ${f.path}\n`)]));
+/**
+ * A fake Octokit serving one commit. Blob SHAs are derived from the path, or are real git SHAs with
+ * `realShas`. The tarball request fails (so ingest falls back to blobs) unless `archive` is given.
+ */
+function fakeOctokit(
+  files: FakeFile[],
+  opts: { truncated?: boolean; realShas?: boolean; archive?: Buffer | Error } = {},
+) {
+  const contentOf = (f: FakeFile) => f.content ?? Buffer.from(`// ${f.path}\n`);
+  const shaOf = (path: string) => {
+    const f = files.find((x) => x.path === path)!;
+    return opts.realShas ? gitBlobSha(contentOf(f)) : `sha-${path}`;
+  };
+  const blobs = new Map(files.map((f) => [shaOf(f.path), contentOf(f)]));
   const tree = files.map((f) => ({
     path: f.path,
     type: f.type ?? 'blob',
@@ -37,6 +50,11 @@ function fakeOctokit(files: FakeFile[], opts: { truncated?: boolean } = {}) {
   const rest = {
     repos: {
       get: vi.fn(async () => ({ data: { default_branch: 'main' } })),
+      downloadTarballArchive: vi.fn(async (_: { ref: string }) => {
+        const archive = opts.archive ?? httpError(502);
+        if (archive instanceof Error) throw archive;
+        return { data: archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.length) };
+      }),
       getCommit: vi.fn(async (_: { ref: string }) => ({
         data: { sha: 'commit-1', commit: { tree: { sha: 'tree-1' } } },
       })),
@@ -222,6 +240,120 @@ describe('ingestRepo concurrency', () => {
     });
     expect((await ingestError(ingestRepo(octokit, target))).code).toBe('upstream_error');
     expect(rest.git.getBlob.mock.calls.length).toBeLessThanOrEqual(BLOB_CONCURRENCY);
+  });
+});
+
+interface TarEntry {
+  name: string;
+  content: Buffer;
+  type?: string;
+  prefix?: string;
+}
+
+/** Uncompressed ustar entries, without the closing blocks. */
+function rawTar(entries: TarEntry[]): Buffer {
+  const blocks: Buffer[] = [];
+  for (const e of entries) {
+    const header = Buffer.alloc(512);
+    header.write(e.name.slice(0, 100), 0);
+    header.write(e.content.length.toString(8).padStart(11, '0'), 124);
+    header.write(e.type ?? '0', 156);
+    header.write('ustar', 257);
+    if (e.prefix) header.write(e.prefix, 345);
+    blocks.push(header, e.content, Buffer.alloc((512 - (e.content.length % 512)) % 512));
+  }
+  return Buffer.concat(blocks);
+}
+
+/** A gzipped archive, as GitHub serves it: every path under one top directory. */
+const tarball = (entries: TarEntry[]) => gzipSync(Buffer.concat([rawTar(entries), Buffer.alloc(1024)]));
+
+/** One pax extended-header record: its length counts its own digits. */
+function paxRecord(key: string, value: string): Buffer {
+  const rest = ` ${key}=${value}\n`;
+  let length = rest.length + 1;
+  while (String(length).length + rest.length !== length) length++;
+  return Buffer.from(`${length}${rest}`);
+}
+
+describe('ingestRepo archive', () => {
+  const top = 'octo-demo-commit1';
+  const a = Buffer.from('export const a = 1;\n');
+  const b = Buffer.from('export const b = 2;\n');
+
+  it('reads every kept file from one tarball request at the pinned commit', async () => {
+    const archive = tarball([
+      { name: `${top}/`, content: Buffer.alloc(0), type: '5' },
+      { name: `${top}/a.ts`, content: a },
+      { name: `${top}/src/b.ts`, content: b },
+      { name: `${top}/node_modules/x.js`, content: b },
+    ]);
+    const { octokit, rest } = fakeOctokit(
+      [
+        { path: 'a.ts', content: a },
+        { path: 'src/b.ts', content: b },
+      ],
+      { realShas: true, archive },
+    );
+    const snapshot = await ingestRepo(octokit, target);
+    expect(rest.repos.downloadTarballArchive).toHaveBeenCalledTimes(1);
+    expect(rest.repos.downloadTarballArchive.mock.calls[0]![0].ref).toBe('commit-1');
+    expect(rest.git.getBlob).not.toHaveBeenCalled();
+    expect(snapshot.files.map((f) => [f.path, f.content])).toEqual([
+      ['a.ts', a.toString()],
+      ['src/b.ts', b.toString()],
+    ]);
+  });
+
+  it('fetches only the files the archive lacks or alters', async () => {
+    const archive = tarball([{ name: `${top}/a.ts`, content: Buffer.from('altered\r\n') }]);
+    const { octokit, rest } = fakeOctokit(
+      [
+        { path: 'a.ts', content: a },
+        { path: 'b.ts', content: b },
+      ],
+      { realShas: true, archive },
+    );
+    const snapshot = await ingestRepo(octokit, target);
+    expect(rest.git.getBlob).toHaveBeenCalledTimes(2);
+    expect(snapshot.files.map((f) => f.content)).toEqual([a.toString(), b.toString()]);
+  });
+
+  it('falls back to blobs when the archive fails, but stops on a quota response', async () => {
+    const files = [{ path: 'a.ts', content: a }];
+    const broken = fakeOctokit(files, { realShas: true, archive: Buffer.from('not gzip') });
+    expect((await ingestRepo(broken.octokit, target)).files).toHaveLength(1);
+    expect(broken.rest.git.getBlob).toHaveBeenCalledTimes(1);
+
+    const quota = httpError(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '2000000000' });
+    const limited = fakeOctokit(files, { realShas: true, archive: quota });
+    expect((await ingestError(ingestRepo(limited.octokit, target))).code).toBe('rate_limited');
+    expect(limited.rest.git.getBlob).not.toHaveBeenCalled();
+  });
+});
+
+describe('readTar', () => {
+  it('uses pax and GNU long paths and the ustar prefix, keeping only wanted regular files', () => {
+    const long = `${'d'.repeat(120)}/file.ts`;
+    const tar = Buffer.concat([
+      rawTar([
+        { name: 'pax_global_header', content: paxRecord('comment', 'commit1'), type: 'g' },
+        { name: 'ignored', content: paxRecord('path', `top/${long}`), type: 'x' },
+        { name: 'top/truncated', content: Buffer.from('pax') },
+        { name: '././@LongLink', content: Buffer.from(`top/gnu/${long}\0`), type: 'L' },
+        { name: 'top/truncated2', content: Buffer.from('gnu') },
+        { name: 'top/link', content: Buffer.alloc(0), type: '2' },
+        { name: 'top/unwanted.ts', content: Buffer.from('no') },
+        { name: 'file.ts', content: Buffer.from('ok'), prefix: 'top/deep' },
+      ]),
+      Buffer.alloc(1024),
+    ]);
+    const files = readTar(tar, new Set([long, `gnu/${long}`, 'link', 'deep/file.ts']));
+    expect([...files].map(([p, c]) => [p, c.toString()])).toEqual([
+      [long, 'pax'],
+      [`gnu/${long}`, 'gnu'],
+      ['deep/file.ts', 'ok'],
+    ]);
   });
 });
 

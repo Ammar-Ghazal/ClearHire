@@ -408,6 +408,8 @@ export interface MuseConfig {
 }
 
 export interface AttemptSettlement {
+  /** Provider spend is recorded even when ClearHire absorbs the cost. */
+  waiveBudgetCharge?: boolean;
   settlement: 'settled' | 'released' | 'ambiguous';
   costMicroUsd: number;
   costSource: 'usage' | 'reservation' | 'none';
@@ -427,7 +429,13 @@ export interface MuseLedger {
 
 /** Statuses Meta documents as rejected before generation; their reservations are released. */
 const PRE_GENERATION = new Set([400, 401, 402, 403, 404, 413, 429]);
-const RETRYABLE = new Set([429, 500, 503]);
+/** Rate limits, timeouts and server failures: the same request may succeed when resent. */
+const retryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
+
+/** Attempts per logical call, the first included. */
+export const MUSE_MAX_ATTEMPTS = 3;
+/** Missing, invalid or timed-out answers are resent; a refusal or a rejected request is not. */
+const RESENT_OUTPUT = new Set<MuseErrorCode>(['invalid_output', 'truncated', 'duplicate_skill_ids']);
 
 function statusCode(status: number): MuseErrorCode {
   if (status === 401 || status === 403) return 'auth';
@@ -668,8 +676,10 @@ export async function countTokens(
 }
 
 /**
- * One logical call: at most one automatic retry, and only after a 429, 500 or 503 response.
- * Timeouts, network failures, invalid or truncated output are returned as typed failures.
+ * One logical call of up to MUSE_MAX_ATTEMPTS attempts. A timeout, network failure, 408/429/5xx
+ * response, or a missing, unreadable, truncated, schema-invalid or duplicate-skill answer is resent;
+ * a refusal or a rejected request fails at once. Every attempt is recorded at its own cost, but an
+ * attempt that is resent is not charged to the subject's budget: ClearHire absorbs it.
  */
 export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T>> {
   const { config, body, schema, timeoutMs, ledger } = options;
@@ -681,6 +691,8 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
   const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
 
   for (let attempt = 1; ; attempt++) {
+    const canRetry = attempt < MUSE_MAX_ATTEMPTS;
+    const waive = (retry: boolean) => (retry ? { waiveBudgetCharge: true } : {});
     // Rate-limit room first, so a long wait never holds a spend reservation.
     const charge = await limiter.acquire(inputTokens + body.max_completion_tokens);
     let callId: string;
@@ -718,7 +730,11 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
       const timedOut =
         err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
       const code = timedOut ? 'timeout' : 'network';
-      await settle({ settlement: 'ambiguous', errorCode: code });
+      await settle({ settlement: 'ambiguous', errorCode: code, ...waive(canRetry) });
+      if (canRetry) {
+        await sleep(1000 + Math.random() * 1000);
+        continue;
+      }
       throw new MuseError(
         code,
         timedOut ? 'Muse request timed out' : 'Muse request failed to complete',
@@ -728,22 +744,22 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
     if (!response.ok) {
       const status = response.status;
       const code = statusCode(status);
+      const transient = retryableStatus(status);
+      const wait =
+        retryAfterMs(response.headers.get('retry-after')) ?? 1000 + Math.random() * 1000;
+      if (status === 429) limiter.pause(wait);
+      const retry = transient && canRetry && wait <= RETRY_AFTER_LIMIT_MS;
       await settle({
         settlement: PRE_GENERATION.has(status) ? 'released' : 'ambiguous',
         httpStatus: status,
         errorCode: code,
+        ...waive(retry),
       });
-      if (RETRYABLE.has(status)) {
-        const wait =
-          retryAfterMs(response.headers.get('retry-after')) ?? 1000 + Math.random() * 1000;
-        if (status === 429) limiter.pause(wait);
-        if (attempt === 1 && wait <= RETRY_AFTER_LIMIT_MS) {
-          await sleep(wait);
-          continue;
-        }
-        throw new MuseError(code, `Muse returned HTTP ${status}`, wait);
+      if (retry) {
+        await sleep(wait);
+        continue;
       }
-      throw new MuseError(code, `Muse returned HTTP ${status}`);
+      throw new MuseError(code, `Muse returned HTTP ${status}`, transient ? wait : undefined);
     }
 
     const parsed = ResponseSchema.safeParse(safeJson(text));
@@ -752,7 +768,9 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
         settlement: 'settled',
         httpStatus: response.status,
         errorCode: 'invalid_output',
+        ...waive(canRetry),
       });
+      if (canRetry) continue;
       throw new MuseError('invalid_output', 'Muse returned an unreadable response');
     }
     const { id, choices, usage: rawUsage } = parsed.data;
@@ -780,6 +798,13 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
       else error = new MuseError('invalid_output', 'Muse output did not match the schema');
     }
 
+    if (data && Object.is(schema, CandidateOutputSchema)) {
+      const ids = (data as unknown as CandidateOutput).skills.map((skill) => skill.skill_id);
+      if (new Set(ids).size !== ids.length) {
+        error = new MuseError('duplicate_skill_ids', 'Model output repeated a skill ID');
+      }
+    }
+    const retry = error !== null && RESENT_OUTPUT.has(error.code) && canRetry;
     if (usage) charge(usage.promptTokens + usage.completionTokens);
     const cost = usage ? costMicroUsd(body.model, usage) : reserved;
     await settle({
@@ -791,7 +816,9 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
       usage,
       responseId: id ?? null,
       errorCode: error?.code ?? null,
+      ...waive(retry),
     });
+    if (retry) continue;
     if (error) throw error;
     return {
       data: data as T,

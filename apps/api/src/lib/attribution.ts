@@ -2,11 +2,10 @@
 // which account a change is recorded under, never who physically wrote it or how well they know it.
 // Unavailable or provisional evidence is incomplete evidence, never a reason to lower a skill score.
 import type { RepoSnapshot } from './ingest.js';
-import { filterEntry } from './ingest-filter.js';
 import type { AnalysisPackets, Chunk } from './packets.js';
 
 /** Bump when attribution rules change, so cached analyses built on older results are not reused. */
-export const ATTRIBUTION_VERSION = 1;
+export const ATTRIBUTION_VERSION = 2;
 
 export interface CandidateIdentity {
   githubUserId: number;
@@ -43,18 +42,11 @@ export interface CommitSummary {
   committerAccount: LinkedAccount | null;
 }
 
-export interface CommitFile {
+/** Snapshot lines that `git blame` at the pinned commit assigns to one commit. */
+export interface BlameRange {
   path: string;
-  status: string;
-  /** Blob SHA after the change. */
-  sha: string | null;
-  changes: number;
-  patch?: string;
-}
-
-export interface CommitDetail {
-  files: CommitFile[];
-  outcome: 'complete' | 'files_capped' | 'failed';
+  start: number;
+  end: number;
 }
 
 export type Landing = 'landing' | 'not_landing' | 'unknown';
@@ -66,13 +58,7 @@ export interface PrLookup {
   prCommits?: CommitSummary[];
 }
 
-export type GapReason =
-  | 'history_capped'
-  | 'commit_details_capped'
-  | 'commit_files_capped'
-  | 'patch_missing'
-  | 'commit_detail_failed'
-  | 'pr_lookup_incomplete';
+export type GapReason = 'history_capped' | 'blame_incomplete' | 'pr_lookup_incomplete';
 
 export interface Gap {
   reason: GapReason;
@@ -84,7 +70,8 @@ export interface CollectedContributions {
   repository: { owner: string; repo: string; commitSha: string; fork: boolean; ownerId: number };
   /** Inspected history, newest first. */
   commits: CommitSummary[];
-  details: Map<string, CommitDetail>;
+  /** Blame at the pinned commit, by commit SHA: only commits the candidate authored or coauthored. */
+  blame: Map<string, BlameRange[]>;
   prLookups: Map<string, PrLookup>;
   gaps: Gap[];
   requestsUsed: number;
@@ -94,7 +81,8 @@ export interface ContributionRange {
   path: string;
   start: number;
   end: number;
-  mapping: 'exact' | 'historical' | 'deleted';
+  /** Blame is taken at the snapshot commit, so every range is in the snapshot's own lines. */
+  mapping: 'exact';
   analysis: 'snapshot_chunks' | 'unavailable';
   /** Context only: the evidence is `start`–`end`, never the rest of a linked chunk. */
   chunkIds: string[];
@@ -111,7 +99,6 @@ export interface Contribution {
   aiCoauthorDeclared: boolean;
   prNumber?: number;
   landing: Landing;
-  patch: 'complete' | 'partial' | 'not_fetched';
   ranges: ContributionRange[];
 }
 
@@ -249,117 +236,26 @@ export function conclusivelyNoContributions(
   );
 }
 
-// ---- Patches ----
+// ---- Blame ----
 
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
-
-interface LineRange {
-  start: number;
-  end: number;
-}
-
-interface Hunk {
-  added: LineRange[];
-  removed: LineRange | null;
-}
-
-/** Added runs use new-side line numbers; removed lines use old-side numbers. */
-function parseHunks(patch: string): Hunk[] {
-  const hunks: Hunk[] = [];
-  let hunk: Hunk | undefined;
-  let oldLine = 0;
-  let newLine = 0;
-  for (const line of patch.split('\n')) {
-    const header = HUNK_HEADER.exec(line);
-    if (header) {
-      hunk = { added: [], removed: null };
-      hunks.push(hunk);
-      oldLine = Number(header[1]);
-      newLine = Number(header[2]);
-    } else if (hunk && line.startsWith('+')) {
-      const last = hunk.added.at(-1);
-      if (last && last.end === newLine - 1) last.end = newLine;
-      else hunk.added.push({ start: newLine, end: newLine });
-      newLine++;
-    } else if (hunk && line.startsWith('-')) {
-      hunk.removed = { start: hunk.removed?.start ?? oldLine, end: oldLine };
-      oldLine++;
-    } else if (hunk && line.startsWith(' ')) {
-      oldLine++;
-      newLine++;
-    }
-  }
-  return hunks;
-}
-
-// Reasons `filterEntry` derives from the path alone. Commit file data has no mode or size, so
-// symlink, submodule and too_large can't be known and are never claimed.
-const PATH_EXCLUSIONS = new Set([
-  'unsafe_path',
-  'dependency',
-  'build_output',
-  'lockfile',
-  'credential',
-  'binary',
-]);
-
-function isExcluded(file: CommitFile): boolean {
-  const reason = filterEntry(
-    { path: file.path, type: 'blob', mode: '100644', sha: file.sha ?? '' },
-    Number.MAX_SAFE_INTEGER,
-  );
-  return reason !== null && PATH_EXCLUSIONS.has(reason);
-}
-
-interface SnapshotIndex {
-  blobByPath: Map<string, string>;
-  chunksByPath: Map<string, Chunk[]>;
-}
-
-function rangesAndPatch(
-  commitSha: string,
-  detail: CommitDetail,
-  snapshot: SnapshotIndex,
-  gaps: Gap[],
-): Pick<Contribution, 'patch' | 'ranges'> {
-  let patch: Contribution['patch'] = detail.outcome === 'complete' ? 'complete' : 'partial';
-  const ranges: ContributionRange[] = [];
-
-  for (const file of detail.files) {
-    if (isExcluded(file)) continue;
-    if (file.patch === undefined) {
-      if (file.status === 'renamed' && file.changes === 0) continue;
-      patch = 'partial';
-      gaps.push({ reason: 'patch_missing', commitSha, path: file.path });
-      continue;
-    }
-
-    const exact = file.sha !== null && snapshot.blobByPath.get(file.path) === file.sha;
-    const chunks = exact ? (snapshot.chunksByPath.get(file.path) ?? []) : [];
-    for (const hunk of parseHunks(file.patch)) {
-      for (const { start, end } of hunk.added) {
-        const chunkIds = chunks.filter((c) => c.startLine <= end && c.endLine >= start).map((c) => c.id);
-        ranges.push({
-          path: file.path,
-          start,
-          end,
-          mapping: exact ? 'exact' : 'historical',
-          analysis: chunkIds.length > 0 ? 'snapshot_chunks' : 'unavailable',
-          chunkIds,
-        });
-      }
-      if (hunk.added.length === 0 && hunk.removed) {
-        ranges.push({
-          path: file.path,
-          ...hunk.removed,
-          mapping: 'deleted',
-          analysis: 'unavailable',
-          chunkIds: [],
-        });
-      }
-    }
-  }
-  return { patch, ranges };
+/** Blame ranges of one commit, each linked to the snapshot chunks it overlaps (context only). */
+function blameRanges(
+  ranges: BlameRange[],
+  chunksByPath: Map<string, Chunk[]>,
+): ContributionRange[] {
+  return ranges.map(({ path, start, end }) => {
+    const chunkIds = (chunksByPath.get(path) ?? [])
+      .filter((c) => c.startLine <= end && c.endLine >= start)
+      .map((c) => c.id);
+    return {
+      path,
+      start,
+      end,
+      mapping: 'exact',
+      analysis: chunkIds.length > 0 ? 'snapshot_chunks' : 'unavailable',
+      chunkIds,
+    };
+  });
 }
 
 // ---- Report ----
@@ -396,11 +292,6 @@ export function attributeContributions(
   for (const chunk of context.packets.chunks) {
     chunksByPath.set(chunk.path, [...(chunksByPath.get(chunk.path) ?? []), chunk]);
   }
-  const snapshot: SnapshotIndex = {
-    blobByPath: new Map(context.snapshot.files.map((f) => [f.path, f.sha])),
-    chunksByPath,
-  };
-
   const gaps = [...collected.gaps];
   const contributions: Contribution[] = [];
   let mergeCommits = 0;
@@ -431,11 +322,7 @@ export function attributeContributions(
           ? 'undetermined'
           : 'sole';
 
-    const detail = collected.details.get(commit.sha);
-    const evidence: Pick<Contribution, 'patch' | 'ranges'> =
-      authored && detail
-        ? rangesAndPatch(commit.sha, detail, snapshot, gaps)
-        : { patch: 'not_fetched', ranges: [] };
+    const ranges = authored ? blameRanges(collected.blame.get(commit.sha) ?? [], chunksByPath) : [];
 
     contributions.push({
       commitSha: commit.sha,
@@ -452,7 +339,7 @@ export function attributeContributions(
       ),
       ...(lookup.prNumber !== undefined && { prNumber: lookup.prNumber }),
       landing: lookup.landing,
-      ...evidence,
+      ranges,
     });
   }
 

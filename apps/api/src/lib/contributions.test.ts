@@ -1,14 +1,20 @@
 import type { Octokit } from '@octokit/rest';
 import { describe, expect, it, vi } from 'vitest';
 import type { CandidateIdentity } from './attribution.js';
-import { collectContributions, DEFAULT_COLLECT_LIMITS, type CollectLimits } from './contributions.js';
+import {
+  BLAME_BATCH,
+  collectContributions,
+  DEFAULT_COLLECT_LIMITS,
+  pinHistory,
+  type CollectLimits,
+} from './contributions.js';
 import { IngestError } from './ingest.js';
 
 const TOKEN = 'ghu_secret_token';
 const target = { owner: 'octo', repo: 'demo', commitSha: 'head' };
 const CANDIDATE: CandidateIdentity = { githubUserId: 101, login: 'cand', verifiedEmails: [] };
-const ME = { id: 101, login: 'cand', type: 'User' };
-const OTHER = { id: 202, login: 'other', type: 'User' };
+const ME = { databaseId: 101, login: 'cand' };
+const OTHER = { databaseId: 202, login: 'other' };
 
 function httpError(status: number, headers: Record<string, string> = {}) {
   return Object.assign(new Error(`HttpError ${TOKEN}`), { status, response: { headers } });
@@ -17,63 +23,92 @@ function httpError(status: number, headers: Record<string, string> = {}) {
 interface FakeCommit {
   sha: string;
   author?: typeof ME | null;
-  committer?: typeof ME | null;
   parents?: number;
+  /** Associated PRs as GitHub lists them for this commit. */
+  prs?: { number: number; merged: boolean; mergeCommit: { oid: string } | null }[];
+  /** More associated PRs than listed: the list is cut off. */
+  prTotal?: number;
 }
 
-function apiCommit({ sha, author = ME, committer = OTHER, parents = 1 }: FakeCommit) {
+function apiCommit({ sha, author = ME, parents = 1 }: FakeCommit) {
   return {
-    sha,
-    parents: Array.from({ length: parents }, (_, i) => ({ sha: `${sha}-p${i}` })),
-    commit: {
-      message: 'Change',
-      author: { name: 'A', email: 'a@example.com' },
-      committer: { name: 'C', email: 'c@example.com' },
-    },
-    author,
-    committer,
+    oid: sha,
+    message: 'Change',
+    parents: { nodes: Array.from({ length: parents }, (_, i) => ({ oid: `${sha}-p${i}` })) },
+    author: { name: 'A', email: 'a@example.com', user: author },
+    committer: { name: 'C', email: 'c@example.com', user: OTHER },
   };
 }
 
-const file = (n: number) => ({
-  filename: `src/f${n}.ts`,
-  status: 'modified',
-  sha: `blob-${n}`,
-  changes: 1,
-  patch: '@@ -1,1 +1,1 @@\n-a\n+b',
-});
+type Vars = Record<string, unknown>;
 
-/** History pages slice `commits`; each getCommit page has `filesPerCommit` files. */
-function fakeOctokit(commits: FakeCommit[], opts: { filesPerCommit?: number } = {}) {
-  const filesPerCommit = opts.filesPerCommit ?? 1;
-  const page = <T>(items: T[], p = 1, per = 100) => items.slice((p - 1) * per, p * per);
-
-  const rest = {
-    repos: {
-      get: vi.fn(async () => ({ data: { fork: false, owner: { id: 999 } } })),
-      listCommits: vi.fn(async ({ page: p }: { page: number }) => ({
-        data: page(commits.map(apiCommit), p),
-      })),
-      getCommit: vi.fn(async ({ page: p }: { ref: string; page: number }) => ({
-        data: { files: page(Array.from({ length: filesPerCommit }, (_, i) => file(i)), p) },
-      })),
-      listPullRequestsAssociatedWithCommit: vi.fn(
-        async (_: { commit_sha: string; request?: { signal: AbortSignal } }) => ({
-          data: [] as { number: number; merge_commit_sha: string | null; merged_at: string | null }[],
+/**
+ * A fake `octokit.graphql`: history pages of 100 by cursor, PR commit lists from `prCommits`, and
+ * blame from `blame` (path → commit owning every line). `fail` lets a test break single queries.
+ */
+function fakeOctokit(
+  commits: FakeCommit[],
+  opts: {
+    blame?: Record<string, string>;
+    prCommits?: Record<number, FakeCommit[]>;
+    fail?: (kind: 'history' | 'pr' | 'blame', vars: Vars) => unknown;
+    /** The default branch has no commit (an empty repository). */
+    empty?: boolean;
+  } = {},
+) {
+  const calls: { kind: 'history' | 'pr' | 'blame'; vars: Vars }[] = [];
+  const graphql = vi.fn(async (document: string, vars: Vars) => {
+    const kind = document.includes('history(') ? 'history' : document.includes('blame(') ? 'blame' : 'pr';
+    calls.push({ kind, vars });
+    const failure = opts.fail?.(kind, vars);
+    if (failure) throw failure;
+    if (kind === 'history') {
+      const start = vars.after ? Number(vars.after) : 0;
+      const nodes = commits.slice(start, start + 100).map((c) => ({
+        ...apiCommit(c),
+        associatedPullRequests: { totalCount: c.prTotal ?? (c.prs ?? []).length, nodes: c.prs ?? [] },
+      }));
+      const end = start + nodes.length;
+      // The pinned commit: the given oid, or the default branch head.
+      const head = {
+        oid: (vars.oid as string | undefined) ?? 'head',
+        tree: { oid: 'tree-head' },
+        history: { pageInfo: { hasNextPage: end < commits.length, endCursor: String(end) }, nodes },
+      };
+      const root = document.includes('defaultBranchRef')
+        ? { defaultBranchRef: opts.empty ? null : { target: head } }
+        : { object: head };
+      return { repository: { isFork: false, owner: { databaseId: 999 }, ...root } };
+    }
+    const keys = Object.keys(vars).filter((k) => /^[pn]\d+$/.test(k));
+    if (kind === 'pr') {
+      const repository = Object.fromEntries(
+        keys.map((k, j) => {
+          const list = opts.prCommits?.[vars[k] as number];
+          return [
+            `p${j}`,
+            list && {
+              commits: { totalCount: list.length, nodes: list.map((c) => ({ commit: apiCommit(c) })) },
+            },
+          ];
         }),
-      ),
-    },
-    pulls: {
-      listCommits: vi.fn(async (_: { pull_number: number; page: number }) => ({
-        data: [] as ReturnType<typeof apiCommit>[],
-      })),
-    },
-  };
-  return { octokit: { rest } as unknown as Octokit, rest };
+      );
+      return { repository };
+    }
+    const object = Object.fromEntries(
+      keys.map((k, j) => {
+        const owner = opts.blame?.[vars[k] as string];
+        const ranges = owner ? [{ startingLine: 1, endingLine: 3, commit: { oid: owner } }] : [];
+        return [`f${j}`, { ranges }];
+      }),
+    );
+    return { repository: { object } };
+  });
+  return { octokit: { graphql } as unknown as Octokit, graphql, calls };
 }
 
-const run = (octokit: Octokit, limits: Partial<CollectLimits> = {}) =>
-  collectContributions(octokit, target, CANDIDATE, { ...DEFAULT_COLLECT_LIMITS, ...limits });
+const run = (octokit: Octokit, paths: string[] = [], limits: Partial<CollectLimits> = {}) =>
+  collectContributions(octokit, target, CANDIDATE, paths, { ...DEFAULT_COLLECT_LIMITS, ...limits });
 
 async function ingestError(promise: Promise<unknown>): Promise<IngestError> {
   const err = await promise.then(
@@ -86,189 +121,162 @@ async function ingestError(promise: Promise<unknown>): Promise<IngestError> {
 }
 
 describe('collectContributions', () => {
-  it('fetches patches only for authored non-merge commits', async () => {
-    const { octokit, rest } = fakeOctokit([
-      { sha: 'mine' },
-      { sha: 'committed', author: OTHER, committer: ME },
-      { sha: 'merge', parents: 2 },
-      { sha: 'root', parents: 0 },
-    ]);
-    const out = await run(octokit);
-    expect(rest.repos.listCommits).toHaveBeenCalledTimes(1);
-    expect(rest.repos.listCommits).toHaveBeenCalledWith(
-      expect.objectContaining({ owner: 'octo', repo: 'demo', sha: 'head', page: 1 }),
+  it('blames kept files at the pinned commit, keeping only the candidate commits', async () => {
+    const { octokit, calls } = fakeOctokit(
+      [{ sha: 'mine' }, { sha: 'theirs', author: OTHER }, { sha: 'merge', parents: 2 }],
+      { blame: { 'src/a.ts': 'mine', 'src/b.ts': 'theirs', 'src/c.ts': 'merge' } },
     );
-    expect(rest.repos.getCommit.mock.calls.map(([a]) => a.ref)).toEqual(['mine', 'root']);
-    expect([...out.details.keys()]).toEqual(['mine', 'root']);
-    expect(out.commits).toHaveLength(4);
+    const out = await run(octokit, ['src/a.ts', 'src/b.ts', 'src/c.ts']);
+    expect(calls.map((c) => c.kind)).toEqual(['history', 'blame']);
+    expect(calls[0]!.vars).toMatchObject({ oid: 'head', after: null });
+    expect(calls[1]!.vars).toMatchObject({ oid: 'head', p0: 'src/a.ts' });
+    expect([...out.blame]).toEqual([['mine', [{ path: 'src/a.ts', start: 1, end: 3 }]]]);
+    expect(out.repository).toEqual({ ...target, fork: false, ownerId: 999 });
     expect(out.gaps).toEqual([]);
-    expect(out.prLookups.get('mine')).toEqual({ landing: 'not_landing' });
   });
 
-  it('records capped history, details and changed files', async () => {
-    const commits = Array.from({ length: 250 }, (_, i) => ({ sha: `c${i}` }));
-    const { octokit } = fakeOctokit(commits, { filesPerCommit: 300 });
-    const out = await run(octokit, { maxCommits: 200, maxDetailedCommits: 2 });
-    expect(out.commits).toHaveLength(200);
-    expect(out.gaps.filter((g) => g.reason === 'history_capped')).toHaveLength(1);
-    expect(out.gaps.filter((g) => g.reason === 'commit_details_capped')).toHaveLength(198);
-    expect(out.gaps.filter((g) => g.reason === 'commit_files_capped')).toHaveLength(2);
-    expect(out.details.get('c0')).toMatchObject({ outcome: 'files_capped' });
-    expect(out.details.get('c0')!.files).toHaveLength(300);
+  it('skips blame when the candidate authored nothing', async () => {
+    const { octokit, calls } = fakeOctokit([{ sha: 'theirs', author: OTHER }]);
+    const out = await run(octokit, ['src/a.ts']);
+    expect(calls.map((c) => c.kind)).toEqual(['history']);
+    expect(out.blame.size).toBe(0);
   });
 
-  it('keeps a 5xx detail as a failed commit and continues', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }, { sha: 'b' }]);
-    rest.repos.getCommit.mockRejectedValueOnce(httpError(502));
-    const out = await run(octokit);
-    expect(out.details.get('a')).toEqual({ files: [], outcome: 'failed' });
-    expect(out.details.get('b')).toMatchObject({ outcome: 'complete' });
-    expect(out.gaps).toEqual([{ reason: 'commit_detail_failed', commitSha: 'a' }]);
+  it('pages history by cursor and records a capped history', async () => {
+    const commits = Array.from({ length: 250 }, (_, i) => ({ sha: `c${i}`, author: OTHER }));
+    const { octokit, calls } = fakeOctokit(commits);
+    const out = await run(octokit, [], { maxCommits: 150 });
+    expect(calls.map((c) => c.vars.after)).toEqual([null, '100']);
+    expect(out.commits).toHaveLength(150);
+    expect(out.gaps).toEqual([{ reason: 'history_capped' }]);
   });
 
-  it('decides a landing only after fetching the PR commits', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'squash' }, { sha: 'kept' }]);
-    rest.repos.listPullRequestsAssociatedWithCommit.mockImplementation(async ({ commit_sha }) => ({
-      data: [{ number: commit_sha === 'squash' ? 1 : 2, merge_commit_sha: commit_sha, merged_at: '2026-01-01T00:00:00Z' }],
-    }));
-    rest.pulls.listCommits.mockImplementation(async ({ pull_number }) => ({
-      data: pull_number === 1 ? [apiCommit({ sha: 'orig', author: OTHER })] : [apiCommit({ sha: 'kept' })],
-    }));
+  it('decides a landing from the merged PR and its complete commit list', async () => {
+    const landed = { number: 1, merged: true, mergeCommit: { oid: 'squash' } };
+    const { octokit } = fakeOctokit(
+      [
+        { sha: 'squash', prs: [landed] },
+        { sha: 'rebased', prs: [{ number: 2, merged: true, mergeCommit: { oid: 'rebased' } }] },
+        { sha: 'testmerge', prs: [{ number: 3, merged: false, mergeCommit: { oid: 'testmerge' } }] },
+        { sha: 'direct' },
+      ],
+      { prCommits: { 1: [{ sha: 'a', author: OTHER }], 2: [{ sha: 'rebased' }] } },
+    );
     const out = await run(octokit);
     expect(out.prLookups.get('squash')).toMatchObject({ landing: 'landing', prNumber: 1 });
-    expect(out.prLookups.get('squash')!.prCommits!.map((c) => c.sha)).toEqual(['orig']);
-    expect(out.prLookups.get('kept')).toEqual({ landing: 'not_landing', prNumber: 2 });
+    expect(out.prLookups.get('squash')!.prCommits!.map((c) => c.sha)).toEqual(['a']);
+    // The commit itself is in its PR, so the PR's other commits say nothing about it.
+    expect(out.prLookups.get('rebased')).toEqual({ landing: 'not_landing', prNumber: 2 });
+    // An open PR's merge commit is a test merge, never a landing.
+    expect(out.prLookups.get('testmerge')).toEqual({ landing: 'not_landing' });
+    expect(out.prLookups.get('direct')).toEqual({ landing: 'not_landing' });
+    expect(out.gaps).toEqual([]);
   });
 
-  it('does not treat an open PR test-merge SHA as a landed contribution', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
-    rest.repos.listPullRequestsAssociatedWithCommit.mockResolvedValue({
-      data: [{ number: 7, merge_commit_sha: 'a', merged_at: null }],
-    });
-    const out = await run(octokit);
-    expect(out.prLookups.get('a')).toEqual({ landing: 'not_landing' });
-    expect(rest.pulls.listCommits).not.toHaveBeenCalled();
-  });
-
-  it('checks only the merged PR when open and merged PRs both match the SHA', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
-    rest.repos.listPullRequestsAssociatedWithCommit.mockResolvedValue({
-      data: [
-        { number: 7, merge_commit_sha: 'a', merged_at: null },
-        { number: 8, merge_commit_sha: 'a', merged_at: '2026-01-01T00:00:00Z' },
+  it('leaves landings unknown when the PR list or its commits are cut off or fail', async () => {
+    const { octokit } = fakeOctokit(
+      [
+        { sha: 'crowded', prs: [{ number: 9, merged: true, mergeCommit: null }], prTotal: 11 },
+        { sha: 'missing', prs: [{ number: 50, merged: true, mergeCommit: { oid: 'missing' } }] },
       ],
-    });
-    rest.pulls.listCommits.mockResolvedValue({ data: [apiCommit({ sha: 'orig' })] });
+      { fail: (kind) => kind === 'pr' && httpError(502) },
+    );
     const out = await run(octokit);
-    expect(rest.pulls.listCommits).toHaveBeenCalledTimes(1);
-    expect(rest.pulls.listCommits).toHaveBeenCalledWith(expect.objectContaining({ pull_number: 8 }));
-    expect(out.prLookups.get('a')).toMatchObject({ landing: 'landing', prNumber: 8 });
+    expect(out.prLookups.get('crowded')).toEqual({ landing: 'unknown' });
+    expect(out.prLookups.get('missing')).toEqual({ landing: 'unknown', prNumber: 50 });
+    expect(out.gaps).toContainEqual({ reason: 'pr_lookup_incomplete', commitSha: 'missing' });
   });
 
-  it.each([
-    ['a full associated-PR page', 'full'],
-    ['a failed associated-PR lookup', 'lookup'],
-    ['a failed PR commit list', 'commits'],
-    ['an unexpectedly empty PR commit list', 'empty'],
-    ['250 PR commits', '250'],
-  ])('leaves the landing unknown after %s', async (_, mode) => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
-    const pr = { number: 1, merge_commit_sha: 'a', merged_at: '2026-01-01T00:00:00Z' };
-    rest.repos.listPullRequestsAssociatedWithCommit.mockImplementation(async () => {
-      if (mode === 'lookup') throw httpError(500);
-      return { data: mode === 'full' ? Array.from({ length: 100 }, () => pr) : [pr] };
+  it('splits a failing blame query so only the file that fails is left out', async () => {
+    const paths = Array.from({ length: 4 }, (_, i) => `src/f${i}.ts`);
+    const { octokit, calls } = fakeOctokit([{ sha: 'mine' }], {
+      blame: Object.fromEntries(paths.map((p) => [p, 'mine'])),
+      fail: (kind, vars) => kind === 'blame' && Object.values(vars).includes('src/f2.ts') && httpError(502),
     });
-    rest.pulls.listCommits.mockImplementation(async ({ page }) => {
-      if (mode === 'commits') throw httpError(500);
-      if (mode === 'empty') return { data: [] };
-      const count = Math.min(100, 250 - (page - 1) * 100);
-      return { data: Array.from({ length: count }, (_, i) => apiCommit({ sha: `o${page}-${i}` })) };
+    const out = await run(octokit, paths);
+    expect(calls.filter((c) => c.kind === 'blame')).toHaveLength(5);
+    expect(out.blame.get('mine')!.map((r) => r.path)).toEqual(['src/f0.ts', 'src/f1.ts', 'src/f3.ts']);
+    expect(out.gaps).toEqual([{ reason: 'blame_incomplete', path: 'src/f2.ts' }]);
+  });
+
+  it('treats an empty 200 body like a failed query: the batch splits and only that file is left out', async () => {
+    const paths = ['src/big.ts', 'src/ok.ts'];
+    const { octokit, graphql } = fakeOctokit([{ sha: 'mine' }], { blame: { 'src/ok.ts': 'mine' } });
+    const real = graphql.getMockImplementation()!;
+    // GitHub answers a blame that overran its limit with an empty body, which Octokit returns as-is.
+    graphql.mockImplementation(async (document: string, vars: Vars) =>
+      document.includes('blame(') && Object.values(vars).includes('src/big.ts')
+        ? (undefined as never)
+        : real(document, vars),
+    );
+    const out = await run(octokit, paths);
+    expect(out.blame.get('mine')!.map((r) => r.path)).toEqual(['src/ok.ts']);
+    expect(out.gaps).toEqual([{ reason: 'blame_incomplete', path: 'src/big.ts' }]);
+  });
+
+  it('records files a partial response leaves null, and files past the request cap', async () => {
+    const paths = Array.from({ length: BLAME_BATCH + 1 }, (_, i) => `src/f${i}.ts`);
+    const partial = Object.assign(new Error('partial'), {
+      name: 'GraphqlResponseError',
+      errors: [{ type: 'NOT_FOUND' }],
+      data: { repository: { object: { f0: null, f1: { ranges: [] } } } },
     });
-    const out = await run(octokit);
-    expect(out.prLookups.get('a')!.landing).toBe('unknown');
-    expect(out.gaps).toContainEqual({ reason: 'pr_lookup_incomplete', commitSha: 'a' });
+    const { octokit } = fakeOctokit([{ sha: 'mine' }], {
+      fail: (kind, vars) => kind === 'blame' && vars.p1 !== undefined && partial,
+    });
+    const out = await run(octokit, paths, { maxRequests: 2 });
+    expect(out.gaps.filter((g) => g.path === 'src/f0.ts')).toHaveLength(1);
+    // The second blame query does not fit the cap: its one file is recorded, not dropped.
+    expect(out.gaps).toContainEqual({ reason: 'blame_incomplete', path: `src/f${BLAME_BATCH}.ts` });
+    expect(out.requestsUsed).toBe(2);
   });
 
-  it('stays within the request cap and stops enrichment with gaps, not a throw', async () => {
-    const commits = Array.from({ length: 300 }, (_, i) => ({ sha: `c${i}` }));
-    const { octokit, rest } = fakeOctokit(commits, { filesPerCommit: 250 });
-    rest.repos.listPullRequestsAssociatedWithCommit.mockImplementation(async ({ commit_sha }) => ({
-      data: [{ number: 1, merge_commit_sha: commit_sha, merged_at: '2026-01-01T00:00:00Z' }],
-    }));
-    rest.pulls.listCommits.mockResolvedValue({ data: [apiCommit({ sha: 'original' })] });
-    const out = await run(octokit, { maxRequests: 20 });
-    const calls =
-      rest.repos.get.mock.calls.length +
-      rest.repos.listCommits.mock.calls.length +
-      rest.repos.getCommit.mock.calls.length +
-      rest.repos.listPullRequestsAssociatedWithCommit.mock.calls.length +
-      rest.pulls.listCommits.mock.calls.length;
-    expect(calls).toBe(20);
-    expect(out.requestsUsed).toBe(20);
-    expect(out.gaps.map((g) => g.reason)).toEqual(
-      expect.arrayContaining(['commit_details_capped', 'pr_lookup_incomplete']),
-    );
-    expect([...out.prLookups.values()].every((l) => l.landing === 'unknown')).toBe(true);
+  it('defers on a GraphQL or HTTP quota response instead of recording a gap', async () => {
+    const limited = Object.assign(new Error('limited'), {
+      name: 'GraphqlResponseError',
+      errors: [{ type: 'RATE_LIMITED' }],
+      headers: { 'x-ratelimit-reset': '2000000000' },
+    });
+    const graphqlQuota = fakeOctokit([{ sha: 'mine' }], { fail: (k) => k === 'blame' && limited });
+    const err = await ingestError(run(graphqlQuota.octokit, ['src/a.ts']));
+    expect(err).toMatchObject({ code: 'rate_limited', resetAt: 2_000_000_000_000 });
+
+    const headers = { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '2000000000' };
+    const httpQuota = fakeOctokit([], { fail: () => httpError(403, headers) });
+    expect((await ingestError(run(httpQuota.octokit))).code).toBe('rate_limited');
   });
 
-  it('records PR enrichment timeouts as gaps', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }, { sha: 'b' }]);
-    rest.repos.listPullRequestsAssociatedWithCommit.mockImplementationOnce(
-      (args: { commit_sha: string; request?: { signal: AbortSignal } }) =>
-        new Promise((_, reject) => {
-          args.request!.signal.addEventListener('abort', () => reject(new Error('aborted')));
-        }) as never,
-    );
-    const out = await run(octokit, { timeoutMs: 50 });
-    expect(out.prLookups.get('a')!.landing).toBe('unknown');
-    expect(out.prLookups.get('b')!.landing).toBe('unknown');
-    expect(rest.repos.listPullRequestsAssociatedWithCommit).toHaveBeenCalledTimes(1);
+  it('fails the run when the required history query fails', async () => {
+    const { octokit } = fakeOctokit([], { fail: (k) => k === 'history' && httpError(502) });
+    expect((await ingestError(run(octokit))).code).toBe('upstream_error');
   });
 
-  it('throws a timeout from a required step', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
-    rest.repos.listCommits.mockImplementation(
-      ({ request }: { page: number; request?: { signal: AbortSignal } }) =>
-        new Promise((_, reject) => {
-          request!.signal.addEventListener('abort', () => reject(new Error('aborted')));
-        }) as never,
-    );
-    expect((await ingestError(run(octokit, { timeoutMs: 20 }))).code).toBe('timeout');
+  it('pins the default branch head and its tree in the first history query', async () => {
+    const { octokit, calls } = fakeOctokit([{ sha: 'mine' }], { blame: { 'src/a.ts': 'mine' } });
+    const pinned = await pinHistory(octokit, { owner: 'octo', repo: 'demo' });
+    expect(pinned).toMatchObject({ commitSha: 'head', treeSha: 'tree-head' });
+    expect(calls[0]!.vars).toEqual(expect.not.objectContaining({ oid: expect.anything() }));
+    // Collection reuses that page: only blame is queried afterwards.
+    const out = await collectContributions(octokit, target, CANDIDATE, ['src/a.ts'],
+      DEFAULT_COLLECT_LIMITS, pinned);
+    expect(calls.map((c) => c.kind)).toEqual(['history', 'blame']);
+    expect(out.commits.map((c) => c.sha)).toEqual(['mine']);
+    expect(out.requestsUsed).toBe(2);
   });
 
-  it.each([
-    ['repos.get', httpError(404), 'not_found'],
-    ['listCommits', httpError(403), 'forbidden'],
-    ['listCommits', httpError(429), 'rate_limited'],
-    ['getCommit', httpError(403, { 'x-ratelimit-remaining': '0' }), 'rate_limited'],
-  ] as const)('maps a required %s failure to %s', async (method, error, code) => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'a' }]);
-    const fn = {
-      'repos.get': rest.repos.get,
-      listCommits: rest.repos.listCommits,
-      getCommit: rest.repos.getCommit,
-    }[method] as ReturnType<typeof vi.fn>;
-    fn.mockRejectedValueOnce(error);
-    expect((await ingestError(run(octokit))).code).toBe(code);
-  });
-
-  it('defers on a quota response in optional enrichment instead of recording a gap', async () => {
-    const { octokit, rest } = fakeOctokit([{ sha: 'mine' }]);
-    rest.repos.listPullRequestsAssociatedWithCommit.mockRejectedValueOnce(
-      httpError(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1900000000' }),
-    );
-    const err = await ingestError(run(octokit));
-    expect(err).toMatchObject({ code: 'rate_limited', resetAt: 1_900_000_000_000 });
-    // A permission denial in the same step is still only a gap.
-    const denied = fakeOctokit([{ sha: 'mine' }]);
-    denied.rest.repos.listPullRequestsAssociatedWithCommit.mockRejectedValueOnce(httpError(403));
-    expect((await run(denied.octokit)).gaps).toEqual([
-      { reason: 'pr_lookup_incomplete', commitSha: 'mine' },
-    ]);
+  it('pins a resumed commit by SHA, and refuses an empty repository', async () => {
+    const { octokit, calls } = fakeOctokit([]);
+    expect(await pinHistory(octokit, { owner: 'octo', repo: 'demo', ref: 'abc' })).toMatchObject({
+      commitSha: 'abc',
+    });
+    expect(calls[0]!.vars).toMatchObject({ oid: 'abc' });
+    const empty = fakeOctokit([], { empty: true });
+    const err = await ingestError(pinHistory(empty.octokit, { owner: 'octo', repo: 'demo' }));
+    expect(err.code).toBe('empty_repository');
   });
 
   it('rejects invalid limits by name', async () => {
     const { octokit } = fakeOctokit([]);
-    await expect(run(octokit, { maxRequests: 1 })).rejects.toThrow('Invalid collection limit: maxRequests');
+    await expect(run(octokit, [], { maxRequests: 0 })).rejects.toThrow('maxRequests');
   });
 });

@@ -20,7 +20,7 @@ import {
   type RunOptions,
 } from './assessments.js';
 import { EvidenceInputError, type PreparedCandidate } from './candidate-evidence.js';
-import { collectContributions } from './contributions.js';
+import { collectContributions, DEFAULT_COLLECT_LIMITS, pinHistory } from './contributions.js';
 import { demoOctokit, PreparationError, resolveIdentity, RUN_STALE_MS } from './demo-prepare.js';
 import {
   candidateInput,
@@ -29,7 +29,7 @@ import {
   jobState,
   type CandidateRow,
 } from './demo-results.js';
-import { fetchFiles, IngestError, pinTree } from './ingest.js';
+import { downloadArchive, fetchFiles, IngestError, listTree } from './ingest.js';
 import { MuseError } from './muse.js';
 import { contextPaths } from './packets.js';
 import {
@@ -413,17 +413,25 @@ export async function startReassessment(
               .map((e) => e.path),
           ),
         ];
-        const tree = await pinTree(octokit, { owner, repo });
+        const pinned = await pinHistory(octokit, { owner, repo });
+        const tree = await listTree(octokit, { owner, repo }, pinned);
         const byPath = new Map(tree.kept.map((e) => [e.path, e]));
         const wanted = [...new Set([...input.paths, ...priorPaths])].filter((p) => byPath.has(p));
         if (wanted.length === 0) continue;
-        const core = await fetchFiles(octokit, { owner, repo }, wanted.map((p) => byPath.get(p)!));
-        const extra = contextPaths(core.files, [...byPath.keys()]).slice(0, MAX_CONTEXT_FILES);
-        const context = await fetchFiles(octokit, { owner, repo }, extra.map((p) => byPath.get(p)!));
+        const archive = await downloadArchive(octokit, { owner, repo }, tree);
+        const files = (paths: string[]) =>
+          fetchFiles(octokit, { owner, repo }, paths.map((p) => byPath.get(p)!), undefined, archive);
+        const core = await files(wanted);
+        const context = await files(
+          contextPaths(core.files, [...byPath.keys()]).slice(0, MAX_CONTEXT_FILES),
+        );
         const collected = await collectContributions(
           octokit,
           { owner, repo, commitSha: tree.commitSha },
           identity,
+          [...byPath.keys()],
+          DEFAULT_COLLECT_LIMITS,
+          pinned,
         );
         const prepared: PreparedCandidate = {
           subject,

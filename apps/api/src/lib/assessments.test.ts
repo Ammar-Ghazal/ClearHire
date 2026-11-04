@@ -138,8 +138,8 @@ afterAll(async () => {
 // outdated. They also change when the catalogue or a prompt/schema/cleaner/selection/attribution
 // version does.
 const GOLDEN = {
-  candidate: '6b46d4130fea435fdcc26522deb6aec90f94b2f97df781663626f6b36c08791c',
-  job: '53058cc1ade4420e6c2c3daa9e0fee7eed7979031e5d2991002dc89aebe51c93',
+  candidate: '5615c57651b681e95265fdcd192e360751d89095d6d1d4ce88e4bd20e4e40700',
+  job: '0bf0e15781f16b6b38e7e35420e5839b7fb544916b588159ed7ec63aabc6e0da',
 };
 const unattributedRepo = () =>
   fixtureRepo('two', [{ path: 'src/b.ts', content: sourceLines(10) }], []);
@@ -295,8 +295,9 @@ describe.runIf(up)('assessments (Postgres)', () => {
     expect(chats(fetchMock)).toBe(1);
   });
 
-  it('fails truncated output and resends only on explicit retry', async () => {
-    const fetchMock = fakeFetch(completion(JOB_OUTPUT, 'length'), completion(JOB_OUTPUT));
+  it('resends truncated output up to three times, then only on explicit retry', async () => {
+    const truncated = () => completion(JOB_OUTPUT, 'length');
+    const fetchMock = fakeFetch(truncated(), truncated(), truncated(), completion(JOB_OUTPUT));
     const options = { ...OPTIONS, fetch: fetchMock as unknown as typeof fetch };
     await expect(analyzeJob(job('truncated'), options)).rejects.toMatchObject({
       code: 'truncated',
@@ -310,17 +311,18 @@ describe.runIf(up)('assessments (Postgres)', () => {
     await expect(analyzeJob(job('truncated'), options)).rejects.toMatchObject({
       code: 'previous_failure',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     await expect(
       analyzeJob(job('truncated'), { ...options, retryFailed: true }),
     ).resolves.toMatchObject({
       cached: false,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
-  it('moves a timed-out reservation to estimated spend and flags it', async () => {
-    const fetchMock = fakeFetch(Object.assign(new Error('t'), { name: 'TimeoutError' }));
+  it('resends a timeout twice, charging the budget only for the last reservation', async () => {
+    const timeout = () => Object.assign(new Error('t'), { name: 'TimeoutError' });
+    const fetchMock = fakeFetch(timeout(), timeout(), timeout());
     await expect(
       analyzeJob(job('timeout'), { ...OPTIONS, fetch: fetchMock as never }),
     ).rejects.toMatchObject({ code: 'timeout' });
@@ -328,11 +330,15 @@ describe.runIf(up)('assessments (Postgres)', () => {
       .select()
       .from(skillAssessments)
       .where(eq(skillAssessments.subjectKey, `${RUN}-timeout`));
-    const [call] = await db.select().from(museCalls).where(eq(museCalls.assessmentId, row!.id));
-    expect(call).toMatchObject({ settlement: 'ambiguous', costSource: 'reservation' });
-    expect(call!.costMicroUsd).toBe(call!.reservedMicroUsd);
+    const calls = await db.select().from(museCalls).where(eq(museCalls.assessmentId, row!.id));
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      // Every attempt is recorded at its estimated spend, as the request may have run.
+      expect(call).toMatchObject({ settlement: 'ambiguous', costSource: 'reservation' });
+      expect(call.costMicroUsd).toBe(call.reservedMicroUsd);
+    }
     const subject = await budget(`${NS}subject:job:demo:${RUN}-timeout`);
-    expect(subject).toMatchObject({ reservedMicroUsd: 0, spentMicroUsd: call!.reservedMicroUsd });
+    expect(subject).toMatchObject({ reservedMicroUsd: 0, spentMicroUsd: calls[0]!.reservedMicroUsd });
   });
 
   it('recovers only stale pending rows, without resending them', async () => {
@@ -558,6 +564,39 @@ describe.runIf(up)('assessments (Postgres)', () => {
       messages: { content: string }[];
     };
     expect(sent.messages[2]!.content).toContain('<resume>\nClaims Kubernetes expertise\n</resume>');
+  });
+
+  it('regrades duplicate skill IDs once and charges only the replacement to the candidate', async () => {
+    const duplicate = {
+      ...CANDIDATE_OUTPUT,
+      skills: [...CANDIDATE_OUTPUT.skills, ...CANDIDATE_OUTPUT.skills],
+    };
+    const fetchMock = fakeFetch(completion(duplicate), completion(CANDIDATE_OUTPUT));
+    const subject = { kind: 'demo' as const, key: `${RUN}-duplicate-skills` };
+    const prepared = fixtureCandidate([attributedRepo()], { subject });
+
+    const { assessmentId, assessment } = await analyzeCandidate(prepared, {
+      ...OPTIONS,
+      fetch: fetchMock as never,
+    });
+
+    expect(assessment.status).toBe('complete');
+    expect(chats(fetchMock)).toBe(2);
+    const calls = await db
+      .select()
+      .from(museCalls)
+      .where(eq(museCalls.assessmentId, assessmentId))
+      .orderBy(museCalls.attempt);
+    expect(calls).toMatchObject([
+      { errorCode: 'duplicate_skill_ids', costMicroUsd: expect.any(Number) },
+      { errorCode: null, costMicroUsd: expect.any(Number) },
+    ]);
+    expect(calls[0]!.costMicroUsd).toBeGreaterThan(0);
+    const { scope } = scopesFor('candidate', subject, NS)[0]!;
+    expect(await budget(scope)).toMatchObject({
+      reservedMicroUsd: 0,
+      spentMicroUsd: calls[1]!.costMicroUsd,
+    });
   });
 
   it('runs a fresh assessment for an explicit regrade of unchanged input', async () => {

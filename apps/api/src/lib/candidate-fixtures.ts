@@ -1,5 +1,5 @@
-// Synthetic prepared candidates for tests: commits add exact line ranges to snapshot files.
-import type { CandidateIdentity, CommitDetail, CommitSummary, PrLookup } from './attribution.js';
+// Synthetic prepared candidates for tests: blame gives commits exact line ranges of snapshot files.
+import type { BlameRange, CandidateIdentity, CommitSummary, PrLookup } from './attribution.js';
 import type { PreparedCandidate, PreparedRepo } from './candidate-evidence.js';
 
 export const CANDIDATE: CandidateIdentity = {
@@ -43,18 +43,8 @@ export function fixtureRepo(
     committer: null,
     committerAccount: null,
   }));
-  const details = new Map<string, CommitDetail>(
-    commits.map((c) => {
-      const count = c.end - c.start + 1;
-      const patch = `@@ -0,0 +${c.start},${count} @@\n${'+added\n'.repeat(count)}`;
-      return [
-        c.sha,
-        {
-          outcome: 'complete',
-          files: [{ path: c.path, status: 'modified', sha: blob(c.path), changes: count, patch }],
-        },
-      ];
-    }),
+  const blame = new Map<string, BlameRange[]>(
+    commits.map((c) => [c.sha, [{ path: c.path, start: c.start, end: c.end }]]),
   );
   const prLookups = new Map<string, PrLookup>(
     commits
@@ -84,7 +74,7 @@ export function fixtureRepo(
     collected: {
       repository: { owner: 'octo', repo: name, commitSha, fork: false, ownerId: 101 },
       commits: summaries,
-      details,
+      blame,
       prLookups,
       gaps: [],
       requestsUsed: 1,

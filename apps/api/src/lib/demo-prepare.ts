@@ -69,6 +69,7 @@ export async function prepareRepo(
       octokit,
       { owner, repo, commitSha: snapshot.commitSha },
       identity,
+      snapshot.files.map((f) => f.path),
     );
     return { owner, repo, collectedFor: identity.githubUserId, snapshot, collected };
   } catch (err) {

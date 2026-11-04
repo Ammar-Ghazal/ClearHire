@@ -604,8 +604,7 @@ function JobPanel(props: {
       )}
       {job.inScope && job.textSource === 'fixture_summary' && (
         <Notice tone="info">
-          Abbreviated description: these are research notes, not the full posting, so matches are
-          provisional.
+          This posting was graded from research notes. Some requirements may be missing.
         </Notice>
       )}
       <pre className="whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -713,7 +712,6 @@ function MatchPanel({ match }: { match: DemoMatch | null }) {
             <span className="font-semibold">{match.match.compatibility.toFixed(0)}%</span> ·
             evidence coverage{' '}
             <span className="font-semibold">{match.match.evidenceCoverage.toFixed(0)}%</span>
-            {match.match.provisional && <span className="text-amber-700"> · provisional</span>}
           </p>
           <p className="text-xs text-slate-500">
             Calculated on the server from priority-weighted requirements; evidence coverage is not a

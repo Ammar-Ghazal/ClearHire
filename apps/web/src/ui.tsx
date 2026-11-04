@@ -54,12 +54,22 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   return { data, setData, error, reload: () => setVersion((v) => v + 1) };
 }
 
-/** Calls `reload` every 5 seconds while `active`; refreshes keep the data already shown. */
+/**
+ * Calls `reload` every 5 seconds while `active` and the tab is visible, and at once when it becomes
+ * visible again; refreshes keep the data already shown.
+ */
 export function usePoll(active: boolean, reload: () => void) {
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(reload, 5000);
-    return () => clearInterval(timer);
+    const tick = () => {
+      if (!document.hidden) reload();
+    };
+    const timer = setInterval(tick, 5000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
   }, [active]);
 }
 
@@ -143,14 +153,6 @@ export function StageChip({ stage, other }: { stage: RelationshipStage; other: s
   );
 }
 
-export function ProvisionalChip() {
-  return (
-    <Badge variant="outline" className="border-amber-300 text-amber-800">
-      Provisional
-    </Badge>
-  );
-}
-
 /** Scores come only from the server; a missing score names its reason instead of showing 0%. */
 export function ScoreSummary({ score, compact }: { score: Score; compact?: boolean }) {
   if (score.state !== 'scored') {
@@ -169,7 +171,21 @@ export function ScoreSummary({ score, compact }: { score: Score; compact?: boole
           <span className="tabular-nums">{percent(score.evidenceCoverage!)}</span> evidence coverage
         </span>
       )}
-      {score.provisional && <ProvisionalChip />}
+      {score.pending && (
+        <Badge variant="outline" className="border-slate-300 text-slate-600">
+          Updating
+        </Badge>
+      )}
+      {score.usingLastSaved && !score.updateFailed && (
+        <Badge variant="outline" className="border-slate-300 text-slate-600">
+          Last saved result
+        </Badge>
+      )}
+      {score.updateFailed && (
+        <Badge variant="outline" className="border-amber-300 text-amber-800">
+          Update failed: last saved result
+        </Badge>
+      )}
     </span>
   );
 }

@@ -33,6 +33,7 @@ import {
   otherName,
   useAction,
   useLoad,
+  usePoll,
 } from '../ui';
 import { InterviewPanel, OfferPanel } from '../workflow';
 
@@ -42,6 +43,7 @@ export function MatchDetailPage() {
   const { candidate = '', job = '' } = useParams();
   const { identity, refresh } = useChosenIdentity();
   const { data, error, reload } = useLoad(() => getMatchDetail(candidate, job), [candidate, job]);
+  usePoll(true, reload);
   if (!data) {
     return (
       <Page title="Match">
@@ -286,7 +288,7 @@ function attributionNotes(ref: EvidenceRef, login: string): string[] {
   const notes = {
     sole: [`Recorded only under @${login}`],
     shared: ['Recorded under several accounts'],
-    provisional: ['Provisional: landing not confirmed'],
+    provisional: ['PR landing not confirmed'],
     unknown: [],
   }[ref.attribution ?? 'unknown'];
   return ref.contributions.some((c) => c.aiCoauthorDeclared)

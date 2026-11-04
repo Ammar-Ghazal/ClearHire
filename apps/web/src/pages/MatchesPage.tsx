@@ -1,6 +1,6 @@
 // Boards 2–3 and 5: the top matches for the demo identity, filtered by stage group and, for
 // employers, by posting. The display limit never limits what is graded; scores come from the server.
-import { hasPendingWork, topMatches, TOP_MATCHES, type MatchSummary } from '@clearhire/shared';
+import { topMatches, TOP_MATCHES, type MatchSummary } from '@clearhire/shared';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { getDemoJobs, getMatches } from '../api';
@@ -47,8 +47,8 @@ export function MatchesPage() {
     (m) => filter === 'all' || STAGES[m.relationship.stage].group === filter,
   );
   const shown = topMatches(filtered, top);
-  // Pending work anywhere in the filtered set keeps the ranking refreshing, scored or not.
-  usePoll(hasPendingWork(filtered), reload);
+  // Scores are recomputed from saved results on every request, so polling picks up any change.
+  usePoll(true, reload);
 
   return (
     <Page

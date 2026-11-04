@@ -7,7 +7,17 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useChosenIdentity } from '../identity';
 import { freshnessLabel } from '../status';
-import { ErrorNote, Loading, MatchList, Page, Panel, PostingText, useAction, useLoad } from '../ui';
+import {
+  ErrorNote,
+  Loading,
+  MatchList,
+  Page,
+  Panel,
+  PostingText,
+  useAction,
+  useLoad,
+  usePoll,
+} from '../ui';
 
 export function PostingsPage() {
   const { identity } = useChosenIdentity();
@@ -48,6 +58,10 @@ export function PostingPage() {
   const job = useLoad(() => getDemoJob(id), [id]);
   const matches = useLoad(() => getMatches(id), [id]);
   const act = useAction();
+  usePoll(true, () => {
+    job.reload();
+    matches.reload();
+  });
 
   if (identity.kind !== 'employer') return <Navigate to="/matches" replace />;
   if (!job.data) {

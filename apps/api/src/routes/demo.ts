@@ -35,6 +35,7 @@ import {
 import { currentDemoIdentity } from '../lib/demo-identity.js';
 import type { ResumeSource } from '../lib/demo-import.js';
 import { TRANSIENT } from '../lib/demo-prepare.js';
+import { formatPosting } from '../lib/posting-format.js';
 import {
   candidateState,
   demoMatch,
@@ -232,6 +233,7 @@ async function jobDetail(row: JobWithEmployer): Promise<DemoJob> {
   return {
     ...jobSummary(row),
     text: row.job.text,
+    formatted: formatPosting(row.job),
     retrievedOn: row.job.retrievedOn,
     sourceLimitations: row.job.sourceLimitations,
     freshness: state.freshness,

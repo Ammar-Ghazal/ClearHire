@@ -169,7 +169,7 @@ export function PostingPage() {
         )}
       </Panel>
 
-      <Panel title="Posting">
+      <Panel>
         <PostingText posting={posting} />
       </Panel>
     </Page>

@@ -1,5 +1,12 @@
 // Small pieces shared by the pages: loading, actions, errors, stage chips and score summaries.
-import type { DemoJob, DemoSide, MatchSummary, RelationshipStage, Score } from '@clearhire/shared';
+import type {
+  DemoJob,
+  DemoSide,
+  FormattedPosting,
+  MatchSummary,
+  RelationshipStage,
+  Score,
+} from '@clearhire/shared';
 import { Link } from 'react-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiRequestError } from './api';
@@ -218,24 +225,118 @@ export function MatchList({ matches, side }: { matches: MatchSummary[]; side: De
 }
 
 /** The posting text as retrieved, with where and when it came from and what it cannot show. */
-export function PostingText({ posting }: { posting: DemoJob }) {
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-slate-500">
-        {TEXT_SOURCES[posting.textSource]}
-        {posting.retrievedOn && ` · retrieved ${posting.retrievedOn}`} ·{' '}
-        <a href={posting.sourceUrl} target="_blank" rel="noreferrer" className="underline underline-offset-4">
-          Original posting
-        </a>
+const SECTION_TITLES: Record<FormattedPosting['sections'][number]['key'], string> = {
+  overview: 'Overview',
+  company: 'About the company',
+  role: 'About the role',
+  team: 'About the team',
+  responsibilities: 'Responsibilities',
+  requirements: 'Qualifications',
+  preferred: 'Preferred qualifications',
+  compensation: 'Compensation and benefits',
+  process: 'Hiring process',
+  additional: 'Additional information',
+  legal: 'Equal opportunity and privacy',
+};
+
+function Linked({ text }: { text: string }) {
+  return text.split(/(https?:\/\/[^\s)]+)/).map((part, i) =>
+    i % 2 ? (
+      <a key={i} href={part} target="_blank" rel="noreferrer" className="break-all underline underline-offset-4">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
+
+function PostingBlocks({ blocks }: { blocks: FormattedPosting['sections'][number]['blocks'] }) {
+  // Consecutive items render as one list.
+  const groups: (typeof blocks)[] = [];
+  for (const b of blocks) {
+    const last = groups.at(-1);
+    if (b.kind === 'item' && last?.[0]?.kind === 'item') last.push(b);
+    else groups.push([b]);
+  }
+  return groups.map((group, i) => {
+    const first = group[0]!;
+    if (first.kind === 'item') {
+      return (
+        <ul key={i} className="list-disc space-y-1.5 pl-5 marker:text-slate-400">
+          {group.map((b, j) => (
+            <li key={j}>
+              <Linked text={b.text} />
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    if (first.kind === 'subheading') {
+      return (
+        <h4 key={i} className="pt-1 font-medium text-slate-900">
+          {first.text}
+        </h4>
+      );
+    }
+    return (
+      <p key={i}>
+        <Linked text={first.text} />
       </p>
+    );
+  });
+}
+
+export function PostingText({ posting }: { posting: DemoJob }) {
+  const { formatted } = posting;
+  const facts = [
+    ['Salary', formatted.salary],
+    ['Location', formatted.location],
+    ['Employment type', formatted.employmentType],
+    ['Workplace', formatted.workplace],
+  ].filter((f): f is [string, string] => Boolean(f[1]));
+  return (
+    <article className="space-y-6 text-sm leading-relaxed text-slate-700">
+      <header className="space-y-4 border-b border-slate-200 pb-5">
+        <div>
+          <h3 className="text-xl font-semibold tracking-[-0.01em] text-balance text-slate-900">
+            {posting.title}
+          </h3>
+          <p className="text-slate-600">{posting.employer.name}</p>
+        </div>
+        {facts.length > 0 && (
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+            {facts.map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs font-medium tracking-wide text-slate-500 uppercase">{label}</dt>
+                <dd className="mt-0.5 font-medium text-slate-900">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </header>
       {posting.sourceLimitations.length > 0 && (
-        <ul className="list-disc pl-5 text-sm text-amber-800">
+        <ul className="list-disc pl-5 text-amber-800">
           {posting.sourceLimitations.map((l) => (
             <li key={l}>{l}</li>
           ))}
         </ul>
       )}
-      <p className="text-sm whitespace-pre-wrap text-slate-700">{posting.text}</p>
-    </div>
+      {formatted.sections.map((s) => (
+        <section key={s.key} className="space-y-3">
+          <h3 className="text-base font-semibold text-slate-900">
+            {s.key === 'company' ? `About ${posting.employer.name}` : SECTION_TITLES[s.key]}
+          </h3>
+          <PostingBlocks blocks={s.blocks} />
+        </section>
+      ))}
+      <footer className="border-t border-slate-200 pt-4 text-xs text-slate-500">
+        {TEXT_SOURCES[posting.textSource]}
+        {posting.retrievedOn && ` · retrieved ${posting.retrievedOn}`} ·{' '}
+        <a href={posting.sourceUrl} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+          Original posting
+        </a>
+      </footer>
+    </article>
   );
 }

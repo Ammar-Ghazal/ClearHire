@@ -1,12 +1,113 @@
+/* Conceptual Sketch type: Kalam for headings, Architects Daughter for body text. Must stay first. */
+@import url('https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Kalam:wght@400;700&display=swap');
 @import 'tailwindcss';
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Driftwood & Tide palette. The app styles with slate/white/amber/sky/blue utilities, so recolouring
+ * those scales restyles every page without touching markup: slate = warm driftwood neutrals,
+ * amber = caramel, sky and blue-700 = tide blue. Emerald and red keep their meaning (success, error).
+ * Every text pairing used in the app is >= 4.5:1 in light and dark.
+ */
+@theme {
+    --color-white: #fffcf7;
+    --color-slate-50: #f6f1e9;
+    --color-slate-100: #ece3d6;
+    --color-slate-200: #e1d6c6;
+    --color-slate-300: #cbbca9;
+    --color-slate-400: #a39280;
+    --color-slate-500: #6c5849;
+    --color-slate-600: #5a4638;
+    --color-slate-700: #47352a;
+    --color-slate-800: #3a2719;
+    --color-slate-900: #2c1409;
+    --color-slate-950: #1c0d05;
+    --color-amber-50: #fbf4ec;
+    --color-amber-100: #f4e3cd;
+    --color-amber-200: #ebd0b0;
+    --color-amber-300: #ddb78e;
+    --color-amber-400: #cb9a6d;
+    --color-amber-500: #b37f53;
+    --color-amber-600: #9a6842;
+    --color-amber-700: #87593c;
+    --color-amber-800: #6f4529;
+    --color-amber-900: #55331d;
+    --color-amber-950: #331d0f;
+    --color-sky-50: #f1f6fa;
+    --color-sky-100: #dce9f3;
+    --color-sky-200: #c9dcea;
+    --color-sky-300: #a9c6de;
+    --color-sky-400: #80a7c7;
+    --color-sky-500: #5a87ac;
+    --color-sky-600: #426e93;
+    --color-sky-700: #2f5577;
+    --color-sky-800: #24445f;
+    --color-sky-900: #1f3a52;
+    --color-sky-950: #13263a;
+    --color-blue-700: #2f5577;
+}
+
+/*
+ * Dark mode is the `dark` class on <html>, set before first paint by index.html (stored choice,
+ * else the system setting) and switched by ThemeToggle. Neutral scales run end to end (50 is the
+ * darkest ground, 900 the lightest ink) and white becomes the dark card colour, so pairs like
+ * text-white on bg-slate-900 keep their contrast.
+ */
+:root.dark {
+        color-scheme: dark;
+        --color-white: #26201a;
+        --color-slate-50: #1e1915;
+        --color-slate-100: #29221c;
+        --color-slate-200: #3a3129;
+        --color-slate-300: #51463b;
+        --color-slate-400: #7a6b5d;
+        --color-slate-500: #b3a392;
+        --color-slate-600: #c5b6a5;
+        --color-slate-700: #d8cbbb;
+        --color-slate-800: #e6dccf;
+        --color-slate-900: #efe6da;
+        --color-slate-950: #f8f3ec;
+        --color-amber-50: #2a1d12;
+        --color-amber-100: #3d2a1a;
+        --color-amber-200: #563b23;
+        --color-amber-300: #7a5434;
+        --color-amber-400: #a2724a;
+        --color-amber-500: #c18d61;
+        --color-amber-600: #d3a47c;
+        --color-amber-700: #ddb68f;
+        --color-amber-800: #e8cba9;
+        --color-amber-900: #f2dfc6;
+        --color-amber-950: #f9efe2;
+        --color-sky-50: #121c26;
+        --color-sky-100: #1a2a38;
+        --color-sky-200: #24394c;
+        --color-sky-300: #2f4c66;
+        --color-sky-400: #44698a;
+        --color-sky-500: #6189ad;
+        --color-sky-600: #82a6c6;
+        --color-sky-700: #9dbbd6;
+        --color-sky-800: #b9cfe3;
+        --color-sky-900: #d3e2ef;
+        --color-sky-950: #e9f1f8;
+        --color-blue-700: #9dbbd6;
+        --color-emerald-50: #10231b;
+        --color-emerald-100: #163326;
+        --color-emerald-700: #6fcf9f;
+        --color-emerald-800: #8ddab2;
+        --color-emerald-900: #b4e8cc;
+        --color-red-50: #2d1414;
+        --color-red-200: #6b2626;
+        --color-red-600: #f07b72;
+        --color-red-700: #f29a92;
+        --color-red-800: #f6b6af;
+}
+
 @theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-heading: 'Kalam', 'Architects Daughter', cursive;
+    --font-sans: 'Architects Daughter', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -43,6 +144,19 @@
 }
 
 :root {
+    /* Native controls (scrollbars, selects, date pickers) follow the theme; :root.dark switches it. */
+    color-scheme: light;
+    /* Conceptual Sketch: pencil strokes, graph-paper grid, highlighter and hatching. */
+    --sketch-pencil: #47352a;
+    --sketch-pencil-soft: #cbbca9;
+    --sketch-grid: #e6dccd;
+    --sketch-hl: #ecc89a;
+    --sketch-hatch: #cfe0ee;
+    /* Box-grid square under the mouse (SketchGrid): ink at low strength, darker than the paper. */
+    --sketch-cell: rgb(44 20 9 / 0.34);
+    /* Hand-drawn corners: wobbly small shapes for controls, gentler ones for large panels. */
+    --sketch-shape-sm: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    --sketch-shape-lg: 12px 90px 10px 110px / 110px 10px 90px 12px;
     /* shadcn tokens mapped onto Tailwind's slate palette (the app's existing colours). */
     --background: var(--color-slate-50);
     --foreground: var(--color-slate-900);
@@ -59,9 +173,9 @@
     --accent: var(--color-slate-100);
     --accent-foreground: var(--color-slate-900);
     --destructive: var(--color-red-600);
-    --border: var(--color-slate-200);
-    --input: var(--color-slate-300);
-    --ring: var(--color-slate-400);
+    --border: var(--sketch-pencil);
+    --input: var(--sketch-pencil);
+    --ring: var(--color-sky-600);
     --radius: 0.625rem;
     --sidebar: var(--color-slate-100);
     --sidebar-foreground: var(--color-slate-700);
@@ -70,7 +184,24 @@
     --sidebar-accent: var(--color-slate-200);
     --sidebar-accent-foreground: var(--color-slate-900);
     --sidebar-border: var(--color-slate-200);
-    --sidebar-ring: var(--color-slate-400);
+    --sidebar-ring: var(--color-sky-600);
+}
+
+/* Sketch tokens for dark mode. Ink on hl and hatch stays >= 4.5:1. */
+:root.dark {
+    --sketch-pencil: #c5b6a5;
+    --sketch-pencil-soft: #51463b;
+    --sketch-grid: #2b241e;
+    --sketch-hl: #6b4a2c;
+    --sketch-hatch: #2e4558;
+    --sketch-cell: rgb(239 230 218 / 0.3);
+}
+
+/* Theme switch: cross-fade the whole page rather than jump in brightness (View Transitions). */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 320ms;
+    animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 @layer base {
@@ -83,12 +214,105 @@
   html {
     @apply font-sans;
   }
-  /* Size-specific tracking: large type tightens, body stays near 0. */
+  /* Graph paper behind the content; cards and controls are opaque, so the grid stays behind them. */
+  body,
+  [data-slot='sidebar-inset'] {
+    background-image:
+      linear-gradient(var(--sketch-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--sketch-grid) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  /* Own stacking context, so the SketchGrid canvas (z-index -10) paints above the paper but below content. */
+  [data-slot='sidebar-inset'] {
+    isolation: isolate;
+  }
+  /* While SketchGrid runs it draws the paper itself, aligned with its squares at any zoom; the CSS
+     grid above is only a fallback for when the canvas cannot run. */
+  [data-slot='sidebar-inset'][data-sketch-grid] {
+    background-image: none;
+  }
+  /* Handwritten faces are drawn with open spacing, so headings keep normal tracking. */
+  h1,
+  h2 {
+    font-family: var(--font-heading);
+  }
   h1 {
-    @apply text-2xl font-semibold tracking-[-0.02em];
+    @apply text-2xl font-semibold;
+    /* Highlighter stroke behind the heading text only. */
+    width: fit-content;
+    max-width: 100%;
+    padding-inline: 0.15em;
+    background: linear-gradient(100deg, transparent 2%, var(--sketch-hl) 4%, var(--sketch-hl) 94%, transparent 97%)
+      0 80% / 100% 42% no-repeat;
   }
   h2 {
-    @apply text-lg font-semibold tracking-[-0.01em];
+    @apply text-lg font-semibold;
+  }
+}
+
+/*
+ * Sketch outlines on existing utility classes. These come after Tailwind's own utilities in the
+ * same layer, so equal-specificity rules here win while state variants (has-checked:, focus-visible:,
+ * aria-invalid:) keep their higher specificity. Radius tokens stay single lengths because some
+ * buttons use them inside min().
+ */
+@layer utilities {
+  .rounded-sm,
+  .rounded-md,
+  .rounded-4xl {
+    border-radius: var(--sketch-shape-sm);
+  }
+  .rounded-lg,
+  .rounded-xl,
+  .rounded-2xl {
+    border-radius: var(--sketch-shape-lg);
+  }
+  .border {
+    border-width: 2px;
+  }
+  .border-slate-200,
+  .border-slate-300 {
+    border-color: var(--sketch-pencil);
+  }
+  .divide-slate-200 > :not(:last-child) {
+    border-color: var(--sketch-pencil-soft);
+  }
+  /* Stage tabs: pencil outline, wobbly pill, and hatching for the selected one. */
+  [role='tablist'] [role='tab'] {
+    border: 2px solid var(--sketch-pencil);
+    border-radius: var(--sketch-shape-sm);
+  }
+  /* Solid paper so the grid stays behind every tab; :where() keeps hover/active shading on top. */
+  :where([role='tablist'] [role='tab']) {
+    background-color: var(--color-white);
+  }
+  /* The tab's own hover tint is 60% transparent; blend it onto paper so the grid stays hidden. */
+  [role='tablist'] [role='tab']:not([aria-selected='true']):hover {
+    background-color: color-mix(in oklab, var(--color-slate-200) 60%, var(--color-white));
+  }
+  [role='tablist'] [role='tab']:not([aria-selected='true']):active {
+    background-color: var(--color-slate-200);
+  }
+  [role='tablist'] [role='tab'][aria-selected='true'] {
+    color: var(--color-slate-900);
+    background-color: var(--color-white);
+    background-image: repeating-linear-gradient(-45deg, var(--sketch-hatch) 0 1.5px, transparent 1.5px 8px);
+    font-weight: 700;
+  }
+  /* Compatibility score circled in tide blue; padding keeps the digits inside the drawn ring. */
+  .score-value {
+    display: inline-block;
+    padding: 0.25em 0.65em;
+    line-height: 1.15;
+    font-family: var(--font-heading);
+    color: var(--color-sky-700);
+    border: 2px solid var(--color-sky-700);
+    border-radius: 50% 45% 55% 50% / 55% 50% 50% 45%;
+  }
+  /* The count is drawn at reduced opacity; over hatching it needs full strength to stay legible. */
+  [role='tablist'] [role='tab'][aria-selected='true'] > span {
+    opacity: 1;
+    font-weight: 600;
   }
 }
 

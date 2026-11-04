@@ -27,7 +27,7 @@ export function OffersPage() {
             <li key={o.id}>
               <Link
                 to={`/offers/${o.id}`}
-                className="flex flex-col gap-2 px-4 py-3 transition-colors duration-100 hover:bg-slate-50 active:bg-slate-100 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 px-4 py-3 transition-colors duration-[260ms] ease-out hover:bg-slate-50 hover:duration-[180ms] active:bg-slate-100 active:duration-75 sm:flex-row sm:items-center sm:justify-between"
               >
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{o.role}</span>

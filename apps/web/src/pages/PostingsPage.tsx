@@ -24,7 +24,7 @@ export function PostingsPage() {
             <li key={j.id}>
               <Link
                 to={`/postings/${encodeURIComponent(j.id)}`}
-                className="flex items-center justify-between gap-3 px-4 py-3 transition-colors duration-100 hover:bg-slate-50 active:bg-slate-100"
+                className="flex items-center justify-between gap-3 px-4 py-3 transition-colors duration-[260ms] ease-out hover:bg-slate-50 hover:duration-[180ms] active:bg-slate-100 active:duration-75"
               >
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{j.title}</span>

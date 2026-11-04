@@ -132,7 +132,7 @@ function ChoiceList({
               type="button"
               disabled={busy}
               onClick={() => onPick(c)}
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors duration-100 hover:bg-slate-50 active:bg-slate-100 disabled:opacity-60"
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors duration-[260ms] ease-out hover:bg-slate-50 hover:duration-[180ms] active:bg-slate-100 active:duration-75 disabled:opacity-60"
             >
               <span className="min-w-0">
                 <span className="block truncate font-medium text-slate-900">{c.name}</span>

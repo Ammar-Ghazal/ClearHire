@@ -159,7 +159,7 @@ export function ScoreSummary({ score, compact }: { score: Score; compact?: boole
   return (
     <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <span>
-        <span className="text-base font-semibold tabular-nums text-slate-900">
+        <span className="score-value text-base font-semibold tabular-nums text-slate-900">
           {percent(score.compatibility!)}
         </span>{' '}
         <span className="text-slate-500">compatibility</span>
@@ -198,7 +198,7 @@ export function MatchRow({ m, side }: { m: MatchSummary; side: DemoSide }) {
     <li>
       <Link
         to={matchPath(m)}
-        className="flex flex-col gap-2 px-4 py-3 transition-colors duration-100 hover:bg-slate-50 active:bg-slate-100 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-2 px-4 py-3 transition-colors duration-[260ms] ease-out hover:bg-slate-50 hover:duration-[180ms] active:bg-slate-100 active:duration-75 sm:flex-row sm:items-center sm:justify-between"
       >
         <span className="min-w-0">
           <span className="block truncate font-medium text-slate-900">{title}</span>

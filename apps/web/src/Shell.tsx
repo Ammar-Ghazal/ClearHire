@@ -18,6 +18,8 @@ import {
   SidebarTrigger,
   useSidebar,
 } from './components/ui/sidebar';
+import { SketchGrid } from './components/SketchGrid';
+import { ThemeToggle } from './components/ThemeToggle';
 import { useIdentity } from './identity';
 import { Loading } from './ui';
 
@@ -52,9 +54,13 @@ export function Shell() {
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader className="gap-3 px-4 pt-4">
-          <Link to="/matches" className="text-lg font-semibold tracking-[-0.01em] text-slate-900">
-            ClearHire
-          </Link>
+          <div className="flex items-center justify-between gap-2">
+            <Link to="/matches" className="text-lg font-semibold tracking-[-0.01em] text-slate-900">
+              ClearHire
+            </Link>
+            {/* Pulled out by its padding so the icon lines up with the identity card's right edge. */}
+            <ThemeToggle className="-mr-1.5" />
+          </div>
           <div className="rounded-lg bg-white/70 px-3 py-2 ring-1 ring-slate-200">
             <p className="text-[11px] font-medium tracking-[0.02em] text-slate-500 uppercase">
               Demo identity · {who.kind === 'candidate' ? 'Job seeker' : 'Employer'}
@@ -78,6 +84,7 @@ export function Shell() {
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-w-0">
+        <SketchGrid />
         <header className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-slate-200/70 bg-white/70 px-3 backdrop-blur-xl backdrop-saturate-150 motion-reduce:backdrop-blur-none">
           <SidebarTrigger aria-label="Open navigation" />
           <span className="truncate text-sm text-slate-600">

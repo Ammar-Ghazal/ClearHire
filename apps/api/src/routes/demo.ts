@@ -213,7 +213,8 @@ async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
   }
   const verification = row.verification as DemoCandidate['verification'];
   return {
-    ...candidateSummary(row, (await activeSelection({ kind: 'demo', key: row.key })).length),
+    ...candidateSummary(row, state.selection.length),
+    resumeText: row.resumeStatus === 'extracted' ? row.resumeText : null,
     verification: {
       identityMatchVerified: verification.identityMatchVerified,
       publicRepositoriesVerified: verification.publicRepositoriesVerified,

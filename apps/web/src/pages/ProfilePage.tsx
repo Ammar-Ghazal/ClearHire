@@ -198,6 +198,14 @@ function SeekerProfile({ candidateKey }: { candidateKey: string }) {
             )}
           </div>
         </dl>
+        {data.resumeText && (
+          <details className="mt-4 text-sm">
+            <summary className="cursor-pointer font-medium">Read saved résumé</summary>
+            <div className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3">
+              {data.resumeText}
+            </div>
+          </details>
+        )}
       </Panel>
     </Page>
   );

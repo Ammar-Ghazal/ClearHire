@@ -506,6 +506,7 @@ export const RepositorySelectionSavedSchema = z.object({
 export type RepositorySelectionSaved = z.infer<typeof RepositorySelectionSavedSchema>;
 
 export const DemoCandidateSchema = DemoCandidateSummarySchema.extend({
+  resumeText: z.string().nullable().optional(),
   verification: z.object({
     identityMatchVerified: z.boolean().nullable(),
     publicRepositoriesVerified: z.boolean().nullable(),

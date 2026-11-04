@@ -17,9 +17,17 @@ import {
   type CandidateIdentity,
 } from './attribution.js';
 import type { DataUse, Omission, PreparedCandidate } from './candidate-evidence.js';
-import { collectContributions, DEFAULT_COLLECT_LIMITS } from './contributions.js';
+import { collectContributions, DEFAULT_COLLECT_LIMITS, pinHistory } from './contributions.js';
 import type { TreeEntry } from './ingest-filter.js';
-import { DEFAULT_LIMITS, fetchFiles, IngestError, overLimits, pinTree } from './ingest.js';
+import {
+  DEFAULT_LIMITS,
+  downloadArchive,
+  fetchFiles,
+  IngestError,
+  listTree,
+  overLimits,
+  type RepoArchive,
+} from './ingest.js';
 import { MuseError } from './muse.js';
 import { contextPaths, sha256Hex } from './packets.js';
 
@@ -153,7 +161,13 @@ export async function processRepository(
   const [owner, repo] = selection.fullName.split('/') as [string, string];
   assertGitHubAvailable();
   let progress = mode.fresh ? null : selection.progress;
-  const tree = await pinTree(octokit, { owner, repo, ...(progress && { ref: progress.commitSha }) });
+  // GraphQL pins the head (or the resumed commit) with its first history page; REST lists the tree.
+  const pinned = await pinHistory(octokit, {
+    owner,
+    repo,
+    ...(progress && { ref: progress.commitSha }),
+  });
+  const tree = await listTree(octokit, { owner, repo }, pinned);
   const batches = partition(tree.kept);
   const digests = batches.map(digestOf);
   if (!progress || progress.batches.join() !== digests.join()) {
@@ -168,7 +182,14 @@ export async function processRepository(
   const commitSha = progress.commitSha;
   const fresh = progress.since !== new Date(0).toISOString();
 
-  const collected = await collectContributions(octokit, { owner, repo, commitSha }, ctx.identity);
+  const collected = await collectContributions(
+    octokit,
+    { owner, repo, commitSha },
+    ctx.identity,
+    tree.kept.map((e) => e.path),
+    DEFAULT_COLLECT_LIMITS,
+    pinned,
+  );
   const attribution: 'complete' | 'limited' =
     collected.gaps.length > 0 || hasUnresolvedAuthors(collected, ctx.identity) ? 'limited' : 'complete';
   const resume = ctx.resumeText === null ? null : { text: ctx.resumeText };
@@ -196,11 +217,17 @@ export async function processRepository(
 
   const treePaths = tree.kept.map((e) => e.path);
   const entryOf = new Map(tree.kept.map((e) => [e.path, e]));
+  // One archive request serves every batch and its context; it is dropped when this returns.
+  let archive: RepoArchive | null = null;
+  if (progress.done.length < batches.length) {
+    assertGitHubAvailable();
+    archive = await downloadArchive(octokit, { owner, repo }, tree);
+  }
   for (const [i, batch] of batches.entries()) {
     if (progress.done.includes(i)) continue;
     assertGitHubAvailable();
     // A hint only: other workers share the quota, so a quota response can still arrive.
-    const need = batch.length + MAX_CONTEXT_FILES + DEFAULT_COLLECT_LIMITS.maxRequests;
+    const need = archive ? 1 : batch.length + MAX_CONTEXT_FILES;
     if (tree.quota && tree.quota.remaining < need) {
       const { resetAt } = tree.quota;
       throw new IngestError('rate_limited', 'GitHub quota too low for this batch', 429, resetAt);
@@ -211,7 +238,7 @@ export async function processRepository(
     if (earlier.failed && mode.automatic) {
       throw new MuseError('previous_failure', 'A paid request for this batch failed; regrade it');
     }
-    const core = await fetchFiles(octokit, { owner, repo }, batch, downloadSignal(batch.length));
+    const core = await fetchFiles(octokit, { owner, repo }, batch, downloadSignal(batch.length), archive);
     const omissions: Omission[] = [];
     let context: typeof core = { files: [], skipped: [] };
     if (batches.length > 1) {
@@ -224,7 +251,13 @@ export async function processRepository(
         const whole = { startLine: null, endLine: null };
         omissions.push({ repo: selection.fullName, path: p, reason: 'context_omitted', ...whole });
       }
-      context = await fetchFiles(octokit, { owner, repo }, fetched, downloadSignal(fetched.length));
+      context = await fetchFiles(
+        octokit,
+        { owner, repo },
+        fetched,
+        downloadSignal(fetched.length),
+        archive,
+      );
     }
     const prepared: PreparedCandidate = {
       subject: ctx.subject,

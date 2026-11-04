@@ -58,7 +58,7 @@ const repoFixture = (repo: string) => {
 const quotaFor = new Map<string, number>();
 const pinQuotaFor = new Map<string, number>();
 
-/** Tree pins (head when `ref` is undefined) and the number of file downloads. */
+/** Commit pins (head when `ref` is undefined) and the number of file downloads. */
 const fetched: { repo: string; ref?: string }[] = [];
 const downloads = { files: 0 };
 let gate: Promise<void> | null = null;
@@ -74,14 +74,11 @@ vi.mock('./ingest.js', async (importOriginal) => {
     }));
   return {
     ...actual,
-    pinTree: vi.fn(async (_o: unknown, { repo, ref }: { repo: string; ref?: string }) => {
-      const reset = pinQuotaFor.get(repo);
-      if (reset) throw new actual.IngestError('rate_limited', 'quota', 403, reset);
-      fetched.push({ repo, ref });
-      if (gate) await gate;
+    listTree: vi.fn(async (_o: unknown, { repo }: { repo: string }) => {
       const { commitSha } = repoFixture(repo).snapshot;
-      return { commitSha, kept: entries(repo), skipped: [], quota: null };
+      return { commitSha, kept: entries(repo), skipped: [], quota: null, totalBytes: 0 };
     }),
+    downloadArchive: vi.fn(async () => null),
     fetchFiles: vi.fn(async (_o: unknown, { repo }: { repo: string }, wanted: { path: string }[]) => {
       const reset = quotaFor.get(repo);
       if (reset) throw new actual.IngestError('rate_limited', 'quota', 403, reset);
@@ -93,6 +90,15 @@ vi.mock('./ingest.js', async (importOriginal) => {
 });
 vi.mock('./contributions.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./contributions.js')>()),
+  pinHistory: vi.fn(async (_o: unknown, { repo, ref }: { repo: string; ref?: string }) => {
+    const { IngestError } = await import('./ingest.js');
+    const reset = pinQuotaFor.get(repo);
+    if (reset) throw new IngestError('rate_limited', 'quota', 403, reset);
+    fetched.push({ repo, ref });
+    if (gate) await gate;
+    const { commitSha } = repoFixture(repo).snapshot;
+    return { commitSha, treeSha: `tree-${repo}`, page: null };
+  }),
   collectContributions: vi.fn(
     async (_o: unknown, { repo }: { repo: string }) => repoFixture(repo).collected,
   ),

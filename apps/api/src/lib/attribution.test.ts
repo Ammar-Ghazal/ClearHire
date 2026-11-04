@@ -3,9 +3,9 @@ import {
   attributeContributions,
   conclusivelyNoContributions,
   parseCoauthors,
+  type BlameRange,
   type CandidateIdentity,
   type CollectedContributions,
-  type CommitDetail,
   type CommitSummary,
   type PrLookup,
 } from './attribution.js';
@@ -44,34 +44,22 @@ function commit(sha: string, overrides: Partial<CommitSummary> = {}): CommitSumm
 
 const withTrailers = (...trailers: string[]) => `Change\n\nBody text.\n\n${trailers.join('\n')}`;
 
-/** A one-file detail adding lines 3–4 of src/a.ts. */
-function detail(overrides: Partial<CommitDetail['files'][number]> = {}): CommitDetail {
-  return {
-    outcome: 'complete',
-    files: [
-      {
-        path: 'src/a.ts',
-        status: 'modified',
-        sha: 'blob-a',
-        changes: 2,
-        patch: '@@ -2,2 +2,4 @@\n line\n+added\n+added\n line',
-        ...overrides,
-      },
-    ],
-  };
-}
+/** Blame giving a commit lines 3–4 of src/a.ts at the snapshot. */
+const detail = (overrides: Partial<BlameRange> = {}): BlameRange[] => [
+  { path: 'src/a.ts', start: 3, end: 4, ...overrides },
+];
 
 const NOT_LANDING: PrLookup = { landing: 'not_landing', prNumber: 7 };
 
 function collected(
   commits: CommitSummary[],
-  details: Record<string, CommitDetail> = {},
+  blame: Record<string, BlameRange[]> = {},
   prLookups: Record<string, PrLookup> = {},
 ): CollectedContributions {
   return {
     repository: { owner: 'octo', repo: 'demo', commitSha: 'snap', fork: false, ownerId: 999 },
     commits,
-    details: new Map(Object.entries(details)),
+    blame: new Map(Object.entries(blame)),
     prLookups: new Map(Object.entries(prLookups)),
     gaps: [],
     requestsUsed: 0,
@@ -136,7 +124,7 @@ describe('identity', () => {
     const c = only(
       collected([commit('c1', { authorAccount: OTHER, committerAccount: ME })], { c1: detail() }),
     );
-    expect(c).toMatchObject({ roles: ['committer'], authorship: 'not_author', patch: 'not_fetched' });
+    expect(c).toMatchObject({ roles: ['committer'], authorship: 'not_author' });
     expect(c.ranges).toEqual([]);
   });
 
@@ -213,7 +201,7 @@ describe('shared work', () => {
   });
 
   it('gives two authors of one file only their own ranges', () => {
-    const otherDetail = detail({ patch: '@@ -10,1 +10,2 @@\n line\n+theirs' });
+    const otherDetail = detail({ start: 11, end: 11 });
     const { contributions } = report(
       collected([commit('c1'), commit('c2', { authorAccount: OTHER })], {
         c1: detail(),
@@ -243,26 +231,15 @@ describe('snapshot mapping', () => {
     ]);
   });
 
-  it('marks later-edited, deleted and unchunked ranges unavailable', () => {
-    const { contributions } = report(
-      collected([commit('c1'), commit('c2'), commit('c3')], {
-        c1: detail({ sha: 'blob-old' }),
-        c2: detail({ patch: '@@ -5,3 +5,1 @@\n line\n-gone\n-gone' }),
-        c3: detail({ path: 'src/removed.ts', sha: 'blob-x' }),
+  it('reports blamed lines of every file, including files others changed later', () => {
+    const c = only(
+      collected([commit('c1')], { c1: [...detail(), { path: 'src/b.ts', start: 1, end: 1 }] }, {
+        c1: NOT_LANDING,
       }),
-      { snapshot, packets: { ...packets, chunks: [] } },
     );
-    expect(contributions.flatMap((c) => c.ranges)).toEqual([
-      { path: 'src/a.ts', start: 3, end: 4, mapping: 'historical', analysis: 'unavailable', chunkIds: [] },
-      { path: 'src/a.ts', start: 6, end: 7, mapping: 'deleted', analysis: 'unavailable', chunkIds: [] },
-      {
-        path: 'src/removed.ts',
-        start: 3,
-        end: 4,
-        mapping: 'historical',
-        analysis: 'unavailable',
-        chunkIds: [],
-      },
+    expect(c.ranges.map((r) => [r.path, r.start, r.end, r.analysis])).toEqual([
+      ['src/a.ts', 3, 4, 'snapshot_chunks'],
+      ['src/b.ts', 1, 1, 'unavailable'],
     ]);
   });
 
@@ -288,45 +265,7 @@ describe('snapshot mapping', () => {
   });
 });
 
-describe('patch states and coverage', () => {
-  it('keeps excluded and rename-only files out of missing patches', () => {
-    const c = only(
-      collected(
-        [commit('c1')],
-        {
-          c1: {
-            outcome: 'complete',
-            files: [
-              { path: 'node_modules/x/index.js', status: 'modified', sha: 's1', changes: 9 },
-              { path: 'pnpm-lock.yaml', status: 'modified', sha: 's2', changes: 9 },
-              { path: 'src/moved.ts', status: 'renamed', sha: 's3', changes: 0 },
-            ],
-          },
-        },
-        { c1: NOT_LANDING },
-      ),
-    );
-    expect(c.patch).toBe('complete');
-  });
-
-  it('marks missing patches, failed and capped details partial, and skipped details not_fetched', () => {
-    const data = collected([commit('c1'), commit('c2'), commit('c3'), commit('c4')], {
-      c1: detail({ path: 'src/data.unknownext', patch: undefined }),
-      c2: { outcome: 'failed', files: [] },
-      c3: { ...detail(), outcome: 'files_capped' },
-    });
-    const out = report(data);
-    expect(out.contributions.map((c) => c.patch)).toEqual([
-      'partial',
-      'partial',
-      'partial',
-      'not_fetched',
-    ]);
-    expect(out.coverage.gaps).toEqual([
-      { reason: 'patch_missing', commitSha: 'c1', path: 'src/data.unknownext' },
-    ]);
-  });
-
+describe('landing and coverage', () => {
   it('keeps candidate-only commits provisional until the PR check completes', () => {
     const c = only(collected([commit('c1')], { c1: detail() }));
     expect(c).toMatchObject({ authorship: 'sole', landing: 'unknown', provisional: true });

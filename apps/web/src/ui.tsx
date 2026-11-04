@@ -58,22 +58,22 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
 }
 
 /**
- * Calls `reload` every 5 seconds while `active` and the tab is visible, and at once when it becomes
+ * Calls `reload` at the given interval while `active` and the tab is visible, and at once when it becomes
  * visible again; refreshes keep the data already shown.
  */
-export function usePoll(active: boolean, reload: () => void) {
+export function usePoll(active: boolean, reload: () => void, intervalMs = 5000) {
   useEffect(() => {
     if (!active) return;
     const tick = () => {
       if (!document.hidden) reload();
     };
-    const timer = setInterval(tick, 5000);
+    const timer = setInterval(tick, intervalMs);
     document.addEventListener('visibilitychange', tick);
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', tick);
     };
-  }, [active]);
+  }, [active, intervalMs]);
 }
 
 /** Runs one action at a time and keeps its error beside the control that started it. */

@@ -1,5 +1,6 @@
 import {
   RepositorySelectionBodySchema,
+  type JudgeModelActivity,
   type Me,
   type PublicRepository,
   type RepositorySelectionSaved,
@@ -11,7 +12,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { db } from '../db/client.js';
 import { githubConnections, userEmails, users } from '../db/schema.js';
 import { env, isDemoOperator } from '../env.js';
-import { gradeJudge, judgeProfile } from '../lib/judge-profile.js';
+import {
+  gradeJudge, judgeModelCalls, judgeProfile, liveJudgeAssessment,
+} from '../lib/judge-profile.js';
 import { safeErrorCode } from '../lib/demo-runner.js';
 import { activeSelection } from '../lib/assessments.js';
 import { decrypt } from '../lib/crypto.js';
@@ -75,13 +78,38 @@ export async function meRoutes(app: FastifyInstance) {
   const grading = new Set<string>();
   const selecting = new Set<string>();
   const failures = new Map<string, string>();
+  const modelRuns = new Map<string, {
+    activity: Map<string, JudgeModelActivity>;
+    jobAssessmentIds: string[];
+    startedAt: Date;
+  }>();
 
   app.get('/me/profile', async (request, reply) => {
     const userId = await currentUserId(request);
     if (!userId) return send(reply, 401, 'unauthenticated', 'Sign in with GitHub');
-    const profile = await judgeProfile(userId);
+    const showCalls = (request.query as { modelCalls?: unknown }).modelCalls === 'true';
+    const running = grading.has(userId);
+    const run = modelRuns.get(userId);
+    // During (or after a failed) run, show only markers from this run, filling in as rows complete;
+    // no run yet means the start is still being checked, so nothing from the last run shows.
+    const profile = running || (run && failures.has(userId))
+      ? {
+        assessment: run ? await liveJudgeAssessment(userId, run.startedAt) : null,
+        match: null,
+        jobTitle: null,
+      }
+      : await judgeProfile(userId);
+    const modelActivity = !showCalls
+      ? undefined
+      : run
+        ? [...run.activity.values()].map((entry) => ({ ...entry }))
+        : running ? [] : undefined;
+    const callIds = modelActivity?.flatMap(({ callId }) => callId ? [callId] : []);
+    const modelCalls = showCalls
+      ? await judgeModelCalls(userId, run?.jobAssessmentIds ?? [], callIds)
+      : undefined;
     return {
-      ...profile, running: grading.has(userId), errorCode: failures.get(userId) ?? null,
+      ...profile, modelCalls, modelActivity, running, errorCode: failures.get(userId) ?? null,
     };
   });
 
@@ -89,10 +117,14 @@ export async function meRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const github = await signedInGitHub(request, reply, true);
       if (!github) return reply;
+      if ((request.body as { contributorConsent?: unknown } | null)?.contributorConsent !== true) {
+        return send(reply, 400, 'contributor_consent_required', 'Confirm Contributor mode before analyzing repositories');
+      }
       if (!env.META_API_KEY) return send(reply, 409, 'model_not_configured', 'Set META_API_KEY first');
       const { user, octokit } = github;
       if (grading.has(user.id) || selecting.has(user.id)) return send(reply, 409, 'in_progress', 'Wait for the current action to finish');
       grading.add(user.id);
+      modelRuns.delete(user.id); // a refused start falls back to the saved profile and recent calls
       let started = false;
       try {
         const selection = await activeSelection({ kind: 'user', key: user.id });
@@ -104,12 +136,17 @@ export async function meRoutes(app: FastifyInstance) {
         }
         const emails = await db.select().from(userEmails).where(eq(userEmails.userId, user.id));
         failures.delete(user.id);
+        const modelRun = { activity: new Map<string, JudgeModelActivity>(), jobAssessmentIds: [] as string[], startedAt: new Date() };
+        modelRuns.set(user.id, modelRun);
         started = true;
         void gradeJudge(user.id, octokit, {
           githubUserId: user.githubUserId,
           login: user.login,
           verifiedEmails: emails.filter((email) => email.verified).map((email) => email.email),
-        }, selection).catch((err: unknown) => {
+        }, selection, (id) => {
+          // Shared job assessments are visible only to the judge who started the call.
+          modelRun.jobAssessmentIds.push(id);
+        }, modelRun.activity).catch((err: unknown) => {
           const code = safeErrorCode(err);
           failures.set(user.id, code);
           request.log.warn({ code }, 'Judge analysis failed');

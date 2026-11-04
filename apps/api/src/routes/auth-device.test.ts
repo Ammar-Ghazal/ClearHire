@@ -76,3 +76,20 @@ it("keeps the GitHub device code server-side and enforces polling and slow-down 
     await app.close();
   }
 });
+
+it.each(["device_flow_disabled", "incorrect_client_credentials"])(
+  "reports GitHub's %s configuration error",
+  async (error) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error }, { status: 400 })));
+    const app = Fastify();
+    await app.register(cookie, { secret: "test-cookie-secret" });
+    await app.register(authRoutes);
+    try {
+      const res = await app.inject({ method: "POST", url: "/auth/github/device" });
+      expect(res.statusCode).toBe(502);
+      expect(res.json().error.code).toBe(error);
+    } finally {
+      await app.close();
+    }
+  },
+);

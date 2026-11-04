@@ -21,6 +21,7 @@ import {
   saveMyRepositories,
 } from '../api';
 import { DemoScreen } from '../DemoScreen';
+import { JudgeModelCalls } from './JudgeModelCalls';
 import { ErrorNote, errorText, useAction, useLoad, usePoll } from '../ui';
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -81,7 +82,7 @@ export function OperatorPage({ profileOnly = false }: { profileOnly?: boolean })
           ) : me === null ? (
             <SignedOut githubConfigured={health?.githubConfigured ?? false} onSignIn={setMe} />
           ) : (
-            <SignedIn me={me} onLogout={handleLogout} />
+            <SignedIn me={me} onLogout={handleLogout} showModelCalls={profileOnly} />
           )}
         </section>
 
@@ -166,8 +167,15 @@ function SignedOut({ githubConfigured, onSignIn }: {
     setError(null);
     try {
       setDevice(await startGitHubSignIn());
-    } catch {
-      setError('Could not start GitHub sign-in. Check the GitHub App device flow setting.');
+    } catch (err) {
+      const code = err instanceof ApiRequestError ? err.code : '';
+      if (code === 'device_flow_disabled') {
+        setError('Enable Device Flow in the ClearHire GitHub App settings, save, and try again.');
+      } else if (code === 'incorrect_client_credentials' || code === 'github_not_configured') {
+        setError('Set GITHUB_CLIENT_ID in .env to the GitHub App’s Client ID, then restart ClearHire.');
+      } else {
+        setError('Could not reach GitHub sign-in. Check your connection and try again.');
+      }
     } finally {
       setStarting(false);
     }
@@ -194,7 +202,7 @@ function SignedOut({ githubConfigured, onSignIn }: {
   );
 }
 
-function SignedIn({ me, onLogout }: { me: Me; onLogout: () => void }) {
+function SignedIn({ me, onLogout, showModelCalls }: { me: Me; onLogout: () => void; showModelCalls: boolean }) {
   return (
     <div>
       <div className="flex items-center gap-4">
@@ -220,27 +228,57 @@ function SignedIn({ me, onLogout }: { me: Me; onLogout: () => void }) {
           </dd>
         </div>
       </dl>
-      <JudgeAssessment />
+      <JudgeAssessment showModelCalls={showModelCalls} />
     </div>
   );
 }
 
 const skillNames = new Map<string, string>(SKILL_CATALOGUE.skills.map(({ id, name }) => [id, name]));
 
-function JudgeAssessment() {
-  const { data, error, reload } = useLoad(getJudgeProfile, []);
+function JudgeAssessment({ showModelCalls }: { showModelCalls: boolean }) {
+  const { data, setData, error, reload } = useLoad(() => getJudgeProfile(showModelCalls), [showModelCalls]);
   const analyze = useAction();
-  usePoll(Boolean(data?.running), reload);
+  const [contributorConsent, setContributorConsent] = useState(false);
+  usePoll(Boolean(data?.running), reload, showModelCalls ? 1000 : 5000);
   return (
     <>
       <RepositoryChoice disabled={Boolean(data?.running)} onSaved={reload} />
-      <button type="button" disabled={!data || data.running || analyze.busy}
-        className="mt-4 rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-        onClick={async () => { if (await analyze.run(analyzeJudgeProfile)) reload(); }}>
-        {data?.running ? 'Analyzing…' : 'Analyze my repos'}
+      <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
+        <input type="checkbox" className="mt-1" checked={contributorConsent}
+          onChange={(event) => setContributorConsent(event.target.checked)} />
+        <span>I agree to send excerpts from my selected public repositories to Meta in Contributor mode. Meta may use the inputs and responses to train future models.</span>
+      </label>
+      <button type="button" disabled={!contributorConsent || !data || data.running || analyze.busy}
+        aria-busy={Boolean(data?.running || analyze.busy)}
+        className="mt-4 rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={async () => {
+          if (!data || data.running || analyze.busy) return;
+          // Reset at once and mark running, so the button stays locked and polling starts.
+          setData({
+            ...data, running: true, errorCode: null, assessment: null, match: null,
+            ...(showModelCalls && { modelCalls: [], modelActivity: [] }),
+          });
+          // Reload either way, so a refused start restores the cleared call list.
+          await analyze.run(() => analyzeJudgeProfile(contributorConsent));
+          reload();
+        }}>
+        {data?.running || analyze.busy ? 'Analyzing…' : 'Analyze my repos'}
       </button>
       <ErrorNote error={analyze.error ?? error ?? (data?.errorCode ? errorText(new ApiRequestError(data.errorCode)) : null)} />
-      {data?.assessment && (
+      {showModelCalls && data?.modelCalls && (
+        <JudgeModelCalls
+          calls={data.modelCalls}
+          activity={data.modelActivity}
+          running={data.running || analyze.busy}
+        />
+      )}
+      {data?.running && !data.assessment?.skills.length && (
+        <section className="mt-6 space-y-3">
+          <h2 className="font-medium">Skill markers</h2>
+          <p className="text-sm text-slate-600" role="status">Skill markers appear here as each repository’s Meta calls return.</p>
+        </section>
+      )}
+      {data?.assessment && (data.assessment.skills.length > 0 || !data.running) && (
         <section className="mt-6 space-y-3">
           <h2 className="font-medium">Skill markers</h2>
           {data.assessment.skills.length === 0 && <p>No attributable skill markers were found.</p>}

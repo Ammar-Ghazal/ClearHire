@@ -1,0 +1,3 @@
+DROP INDEX "skill_assessments_pending_key";--> statement-breakpoint
+CREATE UNIQUE INDEX "skill_assessments_user_repo_pending_key" ON "skill_assessments" USING btree ("subject_key","repo_id") WHERE "skill_assessments"."status" = 'pending' and "skill_assessments"."kind" = 'repository' and "skill_assessments"."subject_kind" = 'user' and "skill_assessments"."repo_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "skill_assessments_pending_key" ON "skill_assessments" USING btree ("kind","subject_kind","subject_key") WHERE "skill_assessments"."status" = 'pending' and not ("skill_assessments"."kind" = 'repository' and "skill_assessments"."subject_kind" = 'user' and "skill_assessments"."repo_id" is not null);

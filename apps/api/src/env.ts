@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { MUSE_MODELS, type MuseModel } from './lib/muse.js';
+import { type MuseModel } from './lib/muse.js';
 
 // In development, read the repo-root .env (found by walking up from this file).
 // In production there is no .env; the host injects env vars.
@@ -42,9 +42,9 @@ const EnvSchema = z.object({
   GITHUB_CLIENT_ID: optional,
   GITHUB_CLIENT_SECRET: optional,
   META_API_KEY: optional,
-  // Chosen explicitly: Contributor for approved public test data, Standard for the final demo.
-  META_MODEL: optional.refine((v) => v === undefined || (MUSE_MODELS as string[]).includes(v), {
-    message: `META_MODEL must be one of: ${MUSE_MODELS.join(', ')}`,
+  // The judge build uses Contributor for approved public data.
+  META_MODEL: optional.refine((v) => v === undefined || v === 'muse-spark-1.3-contributor', {
+    message: 'META_MODEL must be muse-spark-1.3-contributor',
   }),
   META_BASE_URL: z.string().url().default('https://api.meta.ai/v1'),
   META_DAILY_CAP_USD: z.coerce.number().positive().default(5),

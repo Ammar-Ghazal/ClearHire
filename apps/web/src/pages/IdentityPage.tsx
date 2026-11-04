@@ -73,6 +73,13 @@ export function IdentityPage() {
           )}
         </header>
 
+        <p className="mt-6 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+          Want to match your own code?{' '}
+          <Link to="/my-profile" className="font-medium underline underline-offset-4 hover:text-slate-900">
+            Open My profile
+          </Link>.
+        </p>
+
         <ErrorNote error={choose.error} />
         {!data ? (
           <div className="mt-8">
@@ -96,13 +103,6 @@ export function IdentityPage() {
             />
           </div>
         )}
-
-        <p className="mt-12 text-sm text-slate-500">
-          Want to match your own code?{' '}
-          <Link to="/my-profile" className="underline underline-offset-4 hover:text-slate-900">
-            Open My profile
-          </Link>.
-        </p>
       </div>
     </main>
   );

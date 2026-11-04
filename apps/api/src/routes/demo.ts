@@ -214,7 +214,9 @@ async function candidateDetail(row: CandidateRow): Promise<DemoCandidate> {
   const verification = row.verification as DemoCandidate['verification'];
   return {
     ...candidateSummary(row, state.selection.length),
-    resumeText: row.resumeStatus === 'extracted' ? row.resumeText : null,
+    ...(row.resumeStatus === 'extracted' && row.resumeUrl?.startsWith('https://')
+      ? { resumeText: row.resumeText }
+      : {}),
     verification: {
       identityMatchVerified: verification.identityMatchVerified,
       publicRepositoriesVerified: verification.publicRepositoriesVerified,

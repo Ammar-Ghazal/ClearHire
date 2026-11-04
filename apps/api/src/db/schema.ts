@@ -127,10 +127,13 @@ export const skillAssessments = pgTable(
   },
   (t) => [
     index('skill_assessments_cache_key_idx').on(t.cacheKey),
-    // Single-flight: at most one running assessment per subject.
+    // Demo runs and combined assessments keep a subject-wide lock.
     uniqueIndex('skill_assessments_pending_key')
       .on(t.kind, t.subjectKind, t.subjectKey)
-      .where(sql`${t.status} = 'pending'`),
+      .where(sql`${t.status} = 'pending' and not (${t.kind} = 'repository' and ${t.subjectKind} = 'user' and ${t.repoId} is not null)`),
+    uniqueIndex('skill_assessments_user_repo_pending_key')
+      .on(t.subjectKey, t.repoId)
+      .where(sql`${t.status} = 'pending' and ${t.kind} = 'repository' and ${t.subjectKind} = 'user' and ${t.repoId} is not null`),
     index('skill_assessments_subject_idx').on(t.kind, t.subjectKind, t.subjectKey, t.model),
     index('skill_assessments_repo_idx').on(t.subjectKind, t.subjectKey, t.repoId),
   ],

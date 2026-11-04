@@ -123,8 +123,13 @@ export async function startDeviceSignIn() {
     body: new URLSearchParams({ client_id: env.GITHUB_CLIENT_ID ?? '', scope: 'offline_access' }),
     signal: AbortSignal.timeout(15_000),
   });
+  const body: unknown = await res.json().catch(() => null);
+  const error = deviceErrorSchema.safeParse(body);
+  if (error.success) {
+    throw new GitHubAuthError(error.data.error, 'GitHub rejected device sign-in');
+  }
   if (!res.ok) throw new GitHubAuthError('device_start_failed', 'GitHub device sign-in failed');
-  return deviceCodeSchema.parse(await res.json());
+  return deviceCodeSchema.parse(body);
 }
 
 export async function pollDeviceSignIn(deviceCode: string): Promise<UserTokens | string> {
@@ -150,6 +155,10 @@ export async function pollDeviceSignIn(deviceCode: string): Promise<UserTokens |
       : null,
   };
 }
+
+const deviceErrorSchema = z.object({
+  error: z.enum(['device_flow_disabled', 'incorrect_client_credentials']),
+});
 
 const deviceCodeSchema = z.object({
   device_code: z.string().min(1),

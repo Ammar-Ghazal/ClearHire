@@ -97,15 +97,19 @@ async function request<T>(
 
 const segment = encodeURIComponent;
 
-// ---- Signed-in account: repository choice (grading live accounts is not available yet) ----
+// ---- Signed-in account and repository grading ----
 
 export const startGitHubSignIn = () =>
   request('/auth/github/device', GitHubDeviceCodeSchema, { method: 'POST' });
 export const pollGitHubSignIn = () =>
   request('/auth/github/device/poll', GitHubDevicePollSchema, { method: 'POST' });
-export const getJudgeProfile = () => request('/me/profile', JudgeProfileSchema);
-export const analyzeJudgeProfile = () =>
-  request('/me/profile/analysis', AnalysisStartSchema, { method: 'POST' });
+export const getJudgeProfile = (showCalls = false) =>
+  request(showCalls ? '/me/profile?modelCalls=true' : '/me/profile', JudgeProfileSchema);
+export const analyzeJudgeProfile = (contributorConsent: boolean) =>
+  request('/me/profile/analysis', AnalysisStartSchema, {
+    method: 'POST',
+    body: { contributorConsent },
+  });
 
 export const getMyRepositories = (): Promise<PublicRepository[]> =>
   request('/me/repositories', PublicRepositoriesSchema);

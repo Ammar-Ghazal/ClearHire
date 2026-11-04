@@ -78,6 +78,7 @@ import {
   type CandidateOutput,
   type ChatBody,
   type CountOutcome,
+  type MuseAttemptEvent,
   type MuseLedger,
   type MuseModel,
   type RateLimiter,
@@ -116,6 +117,7 @@ export interface RunOptions {
   limiter?: RateLimiter;
   /** Told each token count's outcome, failure category and timing; never request contents. */
   onCount?: (outcome: CountOutcome) => void;
+  onAttempt?: (event: MuseAttemptEvent) => void;
   timeoutMs?: number;
   /** Prefix for budget scopes, so tests never touch the real daily budget. */
   budgetNamespace?: string;
@@ -412,7 +414,13 @@ async function claim(
   const [running] = await db
     .select({ id: skillAssessments.id })
     .from(skillAssessments)
-    .where(and(sameSubject(values), eq(skillAssessments.status, 'pending')));
+    .where(and(
+      sameSubject(values),
+      eq(skillAssessments.status, 'pending'),
+      values.kind === 'repository' && values.subjectKind === 'user' && values.repoId != null
+        ? eq(skillAssessments.repoId, values.repoId)
+        : undefined,
+    ));
   if (running && (await failStale(running.id))) {
     throw new MuseError('previous_failure', 'A previous run was interrupted; retry explicitly');
   }
@@ -475,10 +483,10 @@ async function runClaimed<O, A>(
       .catch(() => {});
   }, HEARTBEAT_MS);
   try {
-    const outputs: O[] = [];
-    for (const { body, inputTokens } of call.requests) {
-      try {
-        const result = await callMuse({
+    // Requests go out together; the outputs stay the in-order prefix up to the first failure.
+    const settled = await Promise.allSettled(
+      call.requests.map(({ body, inputTokens }) =>
+        callMuse({
           config: museConfig(),
           body,
           schema: call.schema as never,
@@ -488,13 +496,20 @@ async function runClaimed<O, A>(
           ...(options.limiter && { limiter: options.limiter }),
           ...(options.fetch && { fetch: options.fetch }),
           ...(options.sleep && { sleep: options.sleep }),
-        });
-        outputs.push(result.data as O);
-      } catch (err) {
-        const superseded = err instanceof MuseError && err.code === 'previous_failure';
-        if (outputs.length === 0 || superseded || !(err instanceof MuseError)) throw err;
-        break;
+          ...(options.onAttempt && { onAttempt: options.onAttempt }),
+        }),
+      ),
+    );
+    const outputs: O[] = [];
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        outputs.push(result.value.data as O);
+        continue;
       }
+      const err: unknown = result.reason;
+      const superseded = err instanceof MuseError && err.code === 'previous_failure';
+      if (outputs.length === 0 || superseded || !(err instanceof MuseError)) throw err;
+      break;
     }
     const assessment = verify(outputs);
     const status = (assessment.status === 'partial' ? 'partial' : 'complete') as Saved;
@@ -1238,11 +1253,13 @@ export async function syncLegacy(
  * rows at its assessed commit (or, while it is still being graded, those at its pinned commit),
  * the older result for repositories it still covers, then newer reassessment overlays. Rows from
  * older versions are ignored. Returns null for an empty selection, which has no markers at all.
+ * With `liveSince`, it only previews the rows completed since then, mid-run, and saves nothing.
  */
 export async function combineCandidate(
   subject: PreparedCandidate['subject'],
   resumeText: string | null,
   options: RunOptions = {},
+  liveSince?: Date,
 ): Promise<CandidateAssessment | null> {
   const model = selectedModel(options);
   const selection = await activeSelection(subject);
@@ -1282,7 +1299,11 @@ export async function combineCandidate(
     let used: Row[] = [];
     let commit: string | null = null;
     let base: Date | null = null;
-    if (s.assessedCommit) {
+    if (liveSince) {
+      used = own.filter((r) => r.completedAt! >= liveSince);
+      base = liveSince;
+      if (used.length === 0) unavailable.push({ repo: s.fullName, reason: 'not_processed' });
+    } else if (s.assessedCommit) {
       used = pick(s.assessedCommit, s.assessedSince);
       commit = s.assessedCommit;
       base = s.assessedAt;
@@ -1334,6 +1355,7 @@ export async function combineCandidate(
     subject,
     model,
   });
+  if (liveSince) return combined;
   const claimed = await claim(
     {
       kind: 'candidate',
@@ -1431,6 +1453,7 @@ export function jobFingerprint(job: JobInput, options: RunOptions = {}) {
 export async function analyzeJob(
   job: PreparedJob,
   options: RunOptions = {},
+  onStarted?: (assessmentId: string) => void,
 ): Promise<RunResult<JobAssessment>> {
   const model = selectedModel(options);
   assertDataUse(model, [job.dataUse]);
@@ -1455,6 +1478,7 @@ export async function analyzeJob(
   if (claimed.kind === 'saved') {
     return { assessmentId: row.id, assessment: JobAssessmentSchema.parse(row.result), cached: true };
   }
+  onStarted?.(row.id);
   const assessment = await runClaimed(
     row,
     options,

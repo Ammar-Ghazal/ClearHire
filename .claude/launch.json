@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@clearhire/api", "dev"],
+      "port": 3001
+    },
+    {
+      "name": "web",
+      "url": "http://localhost:5173"
+    }
+  ]
+}

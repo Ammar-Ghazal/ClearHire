@@ -114,7 +114,7 @@ export async function authRoutes(app: FastifyInstance) {
       if (!env.GITHUB_CLIENT_ID)
         return reply
           .code(503)
-          .send({ error: { code: "github_not_configured" } });
+          .send({ error: { code: "github_not_configured", message: "Set GITHUB_CLIENT_ID in .env" } });
       const now = Date.now();
       for (const [id, attempt] of attempts)
         if (attempt.expiresAt <= now) attempts.delete(id);
@@ -136,14 +136,13 @@ export async function authRoutes(app: FastifyInstance) {
           maxAge: code.expires_in,
         });
         return { code: code.user_code, intervalMs: interval };
-      } catch {
+      } catch (err) {
         return reply
           .code(502)
           .send({
             error: {
-              code: "github_device_unavailable",
-              message:
-                "GitHub could not start sign-in. Check that device flow is enabled.",
+              code: err instanceof GitHubAuthError ? err.code : "github_device_unavailable",
+              message: "GitHub could not start sign-in.",
             },
           });
       }

@@ -8,6 +8,7 @@ import {
   SkillIdSchema,
   SkillLevelSchema,
 } from '@clearhire/shared';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { escapeDelimiters, type DataUse } from './candidate-evidence.js';
 import { sha256Hex } from './packets.js';
@@ -482,12 +483,18 @@ const ResponseSchema = z.object({
   usage: UsageSchema.nullish(),
 });
 
+export type MuseAttemptEvent = { id: string; attempt: number; model: MuseModel } & (
+  | { phase: 'queued' | 'received' | 'failed' }
+  | { phase: 'sent'; callId: string }
+);
+
 export interface CallOptions<T> {
   config: MuseConfig;
   body: ChatBody;
   schema: z.ZodType<T>;
   timeoutMs: number;
   ledger: MuseLedger;
+  onAttempt?: (event: MuseAttemptEvent) => void;
   /** Counted input tokens, when known; otherwise the estimate sizes the reservation. */
   inputTokens?: number;
   limiter?: RateLimiter;
@@ -693,13 +700,20 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
   for (let attempt = 1; ; attempt++) {
     const canRetry = attempt < MUSE_MAX_ATTEMPTS;
     const waive = (retry: boolean) => (retry ? { waiveBudgetCharge: true } : {});
+    const observer = options.onAttempt;
+    const event = { id: observer ? randomUUID() : '', attempt, model: body.model };
+    observer?.({ ...event, phase: 'queued' });
     // Rate-limit room first, so a long wait never holds a spend reservation.
-    const charge = await limiter.acquire(inputTokens + body.max_completion_tokens);
+    const charge = await limiter.acquire(inputTokens + body.max_completion_tokens).catch((err) => {
+      observer?.({ ...event, phase: 'failed' });
+      throw err;
+    });
     let callId: string;
     try {
       callId = await ledger.reserve(attempt, reserved);
     } catch (err) {
       charge(0);
+      observer?.({ ...event, phase: 'failed' });
       throw err;
     }
     const started = Date.now();
@@ -718,6 +732,7 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
     let response: Response;
     let text: string;
     try {
+      observer?.({ ...event, phase: 'sent', callId });
       response = await doFetch(url, {
         method: 'POST',
         headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
@@ -725,6 +740,7 @@ export async function callMuse<T>(options: CallOptions<T>): Promise<CallResult<T
         signal: AbortSignal.timeout(timeoutMs),
       });
       text = await response.text();
+      observer?.({ ...event, phase: 'received' });
     } catch (err) {
       // The request may have reached the model, so the reservation counts as spent.
       const timedOut =

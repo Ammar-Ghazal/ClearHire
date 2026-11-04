@@ -80,7 +80,11 @@ const body = jobBody('muse-spark-1.3', {
   textSource: 'fixture_summary',
 });
 
-async function run(responses: (Response | Error)[], schema: ZodType<unknown> = JobOutputSchema) {
+async function run(
+  responses: (Response | Error)[],
+  schema: ZodType<unknown> = JobOutputSchema,
+  onAttempt?: Parameters<typeof callMuse>[0]['onAttempt'],
+) {
   const fetchMock = vi.fn(async () => {
     const next = responses.shift()!;
     if (next instanceof Error) throw next;
@@ -99,6 +103,7 @@ async function run(responses: (Response | Error)[], schema: ZodType<unknown> = J
     schema,
     timeoutMs: 1000,
     ledger: memory.ledger,
+    ...(onAttempt && { onAttempt }),
     limiter,
     fetch: fetchMock as unknown as typeof fetch,
     sleep,
@@ -167,14 +172,23 @@ describe('callMuse', () => {
   const corrected = { repositories: [], skills: [skill] };
 
   it('resends a duplicate-skill answer, waiving the budget charge of the resent attempt', async () => {
+    const observe = vi.fn();
     const { result, fetchMock, settlements } = await run(
       [completion(duplicate), completion(corrected)],
       CandidateOutputSchema,
+      observe,
     );
+    const events = () => observe.mock.calls.map(([event]) => event);
     await expect(result).resolves.toMatchObject({ data: corrected });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(settlements[0]).toMatchObject({ errorCode: 'duplicate_skill_ids', waiveBudgetCharge: true });
     expect(settlements[1]).not.toHaveProperty('waiveBudgetCharge');
+    expect(events().map(({ phase, attempt }) => [phase, attempt])).toEqual([
+      ['queued', 1], ['sent', 1], ['received', 1],
+      ['queued', 2], ['sent', 2], ['received', 2],
+    ]);
+    expect(events()[0].id).toBe(events()[2].id);
+    expect(events()[0].id).not.toBe(events()[3].id);
   });
 
   it('gives up after three attempts, charging only the last to the budget', async () => {

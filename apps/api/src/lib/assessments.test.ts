@@ -745,14 +745,16 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
     );
 
   /** Counts at 0.8x the estimate; answers each part citing the first attributed ref it holds. */
+  // Requests go out in parallel, so failures and bodies are keyed by request number, not fetch order.
   const splitFetch = (failAt?: number) => {
-    let chats = 0;
     return vi.fn(async (url: string, init: RequestInit) => {
       const sent = JSON.parse(init.body as string) as { messages?: { content: string }[] };
       if (url.endsWith('/responses/input_tokens')) {
         return counted(Math.ceil(((init.body as string).length / 3) * 0.8));
       }
-      if (++chats === failAt) return new Response('{}', { status: 400 });
+      if (failAt && sent.messages![2]!.content.includes(`Request ${failAt} of`)) {
+        return new Response('{}', { status: 400 });
+      }
       const ref = /<a ref="(a\d+)"/.exec(sent.messages![2]!.content)?.[1];
       return completion(
         ref
@@ -774,7 +776,9 @@ describe.runIf(up)('input budget and concurrency (Postgres)', () => {
     fetchMock.mock.calls
       .filter(([url]) => url.endsWith('/chat/completions'))
       .map(([, init]) => JSON.parse(init.body as string) as { messages: { content: string }[] })
-      .map((b) => b.messages[2]!.content);
+      .map((b) => b.messages[2]!.content)
+      .sort((a, b) => requestNumber(a) - requestNumber(b));
+  const requestNumber = (text: string) => Number(/Request (\d+) of/.exec(text)?.[1] ?? 0);
   const filesIn = (text: string) => [...text.matchAll(/<file path="([^"]+)"/g)].map((m) => m[1]!);
 
   it('splits evidence over the ceiling across requests, sending every file', async () => {

@@ -818,10 +818,51 @@ export function topMatches<T extends { score: Score }>(matches: T[], n: number):
 /** True while any pair waits on an analysis, scored or not, displayed or not. */
 export const hasPendingWork = (matches: { score: Score }[]) => matches.some((m) => m.score.pending);
 
+export const JudgeModelCallSchema = z.object({
+  id: z.string(),
+  model: z.string(),
+  attempt: z.number(),
+  settlement: z.enum(['reserved', 'settled', 'released', 'ambiguous']),
+  costSource: z.enum(['usage', 'reservation', 'none']).nullable(),
+  reservedMicroUsd: z.number(),
+  costMicroUsd: z.number().nullable(),
+  httpStatus: z.number().nullable(),
+  finishReason: z.string().nullable(),
+  promptTokens: z.number().nullable(),
+  cachedTokens: z.number().nullable(),
+  completionTokens: z.number().nullable(),
+  reasoningTokens: z.number().nullable(),
+  latencyMs: z.number().nullable(),
+  responseId: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  createdAt: z.string(),
+  settledAt: z.string().nullable(),
+  kind: z.enum(['candidate', 'repository', 'job']),
+  repository: z.string().nullable(),
+  jobTitle: z.string().nullable(),
+});
+export type JudgeModelCall = z.infer<typeof JudgeModelCallSchema>;
+
+export const JudgeModelActivitySchema = z.object({
+  id: z.string(),
+  callId: z.string().nullable(),
+  model: z.string(),
+  attempt: z.number(),
+  kind: z.enum(['repository', 'job']),
+  target: z.string(),
+  queuedAt: z.string(),
+  sentAt: z.string().nullable(),
+  receivedAt: z.string().nullable(),
+  failed: z.boolean(),
+});
+export type JudgeModelActivity = z.infer<typeof JudgeModelActivitySchema>;
+
 export const JudgeProfileSchema = z.object({
   assessment: CandidateAssessmentSchema.nullable(),
   match: MatchResultSchema.nullable(),
   jobTitle: z.string().nullable(),
+  modelCalls: z.array(JudgeModelCallSchema).optional(),
+  modelActivity: z.array(JudgeModelActivitySchema).optional(),
   running: z.boolean(),
   errorCode: z.string().nullable(),
 });

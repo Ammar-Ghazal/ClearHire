@@ -17,7 +17,7 @@ pnpm demo:seed load
 pnpm dev
 ```
 
-Open [ClearHire](http://localhost:5173) and choose a sample seeker or employer. The bundled profiles and saved skill markers can be explored without GitHub sign-in or a Muse API key. The checked-in seed has three saved candidate assessments. A match score also needs an analyzed job.
+Open [ClearHire](http://localhost:5173) and choose a sample seeker or employer. The bundled profiles and saved skill markers can be explored without GitHub sign-in or a Muse API key. The checked-in seed includes saved candidate skill markers and job requirements. Where both sides have a compatible saved assessment, ClearHire calculates the match score. Chats, interviews, offers, and match stages start empty.
 
 ## Try fresh analysis as a judge
 

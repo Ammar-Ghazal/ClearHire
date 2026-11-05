@@ -4,7 +4,7 @@ Built for the **Meta Global AI Developer Hackathon** in the **Indie Developer** 
 
 ## Problem statement
 
-In the current market, recruiters have to search through hundreds of identical AI-generated résumés for every single job opening and engineers are forced to submit thousands of applications just to get a chance at an interview. To resolve this, I've created a job matching platform which analyzes an engineer's personal GitHub portfolio projects and determines which skills they possess and to what proficiency they display them. The aim is to make job searching and recruiting headache-free and more productive for both parties involved.
+In the current market, recruiters have to search through hundreds of identical AI-generated résumés for every job opening and engineers are forced to submit thousands of applications just to get a chance at an interview. To solve this problem, I've created a job matching platform which analyzes an engineer's GitHub portfolio projects and determines which skills they possess and to what proficiency they display them. The aim is to make job searching and recruiting headache-free and more productive for both parties involved.
 
 ## Privacy notice
 

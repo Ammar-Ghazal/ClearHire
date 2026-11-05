@@ -196,7 +196,7 @@ function SignedOut({ githubConfigured, onSignIn }: {
           Sign in with GitHub
         </button>
       )}
-      {!githubConfigured && <p className="mt-2 text-sm">GitHub sign-in setup is in SETUP.md.</p>}
+      {!githubConfigured && <p className="mt-2 text-sm">GitHub sign-in setup is in README.md.</p>}
       {error && <p role="alert" className="mt-2 text-sm text-red-800">{error}</p>}
     </div>
   );

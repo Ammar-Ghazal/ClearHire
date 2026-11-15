@@ -2,9 +2,11 @@
 
 Built for the **Meta Global AI Developer Hackathon** in the **Indie Developer** track under the **Build for Your World** theme.
 
-## Problem statement
+## About
 
-In the current market, recruiters have to search through hundreds of identical AI-generated résumés for every job opening and engineers are forced to submit thousands of applications just to get a chance at an interview. To solve this problem, I've created a job matching platform which analyzes an engineer's GitHub portfolio projects and determines which skills they possess and to what proficiency they display them. The aim is to make job searching and recruiting headache-free and more productive for both parties involved.
+AI generated resumes are everywhere so as part of the Meta Global AI Developer Hackathon I built ClearHire, a full stack job matching platform (React, TypeScript, Fastify, PostgreSQL) that grades a candidate on the code they write rather than just taking their resume claims at face value. It uses their GitHub commit and pull request history to verify which code they wrote and then produces a strict JSON skill profile which it can then match against real job listings.
+
+The main technical challenge was figuring out which code a candidate actually wrote, since most real repos are shared with other people. I combined commit, pull request and line-level history from GitHub’s REST and GraphQL APIs to attribute code to the user. Another tradeoff was making the LLM’s output reliable enough to match against jobs. I chose a strict JSON schema over free-form text, so every profile has the same structure, and I rerun the model whenever a metric looks wrong to catch hallucinations.
 
 ## Privacy notice
 
